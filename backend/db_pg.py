@@ -17,12 +17,25 @@ SQL dialect translation is applied automatically:
   - INTEGER PRIMARY KEY AUTOINCREMENT -> BIGSERIAL PRIMARY KEY (schema only)
 """
 
+import json as _json
 import os
 import re
 import time
 from decimal import Decimal
 
 import asyncpg
+
+# ── Global fix: make Python's json module handle Decimal (from asyncpg NUMERIC) ──
+_orig_json_default = _json.JSONEncoder.default
+
+
+def _json_default_with_decimal(self, obj):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    return _orig_json_default(self, obj)
+
+
+_json.JSONEncoder.default = _json_default_with_decimal
 
 # ── Connection pool ────────────────────────────────────────────────────────────
 
