@@ -216,8 +216,10 @@ async def run_pipeline(force: bool = False, trigger: str = "scheduled") -> dict:
         return summary
 
     except Exception as exc:
+        import traceback as _tb
         duration = round(time.time() - start, 1)
-        logger.exception("Pipeline crashed: %s", exc)
+        tb_str = _tb.format_exc()
+        logger.exception("Pipeline crashed: %s\n%s", exc, tb_str)
         await db.finish_pipeline_run(run_id, {
             "status": "failed", "shufersal_timestamp": "",
             "new_data": 0,
@@ -225,7 +227,8 @@ async def run_pipeline(force: bool = False, trigger: str = "scheduled") -> dict:
             "products_added": 0, "products_removed": 0,
             "alerts_before": alerts_before, "alerts_after": alerts_before,
             "files_attempted": 0, "files_ok": 0, "files_failed": 0,
-            "error_log": json.dumps([{"file": "pipeline", "error": str(exc)}]),
+            "error_log": json.dumps([{"file": "pipeline", "error": str(exc),
+                                      "traceback": tb_str[-800:]}]),
             "duration_s": duration,
         })
         return {"status": "failed", "error": str(exc), "duration_s": duration}
