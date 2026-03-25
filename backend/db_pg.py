@@ -29,6 +29,17 @@ import asyncpg
 _pool: asyncpg.Pool | None = None
 
 
+async def _init_connection(conn) -> None:
+    """Register codecs so PostgreSQL NUMERIC/DECIMAL columns return float, not Decimal."""
+    await conn.set_type_codec(
+        "numeric",
+        encoder=str,
+        decoder=float,
+        schema="pg_catalog",
+        format="text",
+    )
+
+
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
@@ -37,6 +48,7 @@ async def get_pool() -> asyncpg.Pool:
             min_size=1,
             max_size=5,
             statement_cache_size=0,  # Required for Supabase PgBouncer transaction-mode pooling
+            init=_init_connection,   # Convert NUMERIC to float globally
         )
     return _pool
 
