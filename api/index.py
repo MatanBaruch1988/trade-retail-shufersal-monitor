@@ -13,7 +13,4 @@ if not os.environ.get("DATABASE_URL"):
         "data", "prices.db"
     ))
 
-from mangum import Mangum
-from backend.main import app
-
-handler = Mangum(app, lifespan="off")
+from backend.main import app  # noqa: E402  (ASGI app - @vercel/python detects natively)
