@@ -425,7 +425,10 @@ async def get_price_gaps():
                 COALESCE(b.name, cp.item_name, cp.item_code) AS name,
                 cp.format_name,
                 cp.item_price              AS price,
-                MIN(cpr.discounted_price)  AS promo_price
+                MIN(
+                    cpr.discounted_price / CASE WHEN cpr.min_qty IS NOT NULL AND cpr.min_qty > 1
+                                                THEN cpr.min_qty ELSE 1 END
+                ) AS promo_price
             FROM v_current_prices cp
             LEFT JOIN v_current_promos cpr
                    ON cpr.item_code   = cp.item_code
@@ -484,6 +487,7 @@ async def get_price_gaps():
 
 @app.get("/api/promotions")
 async def get_promotions():
+    disabled_fmt, active_bc = await _active_filters()
     conn = await db.get_db()
     try:
         async with conn.execute("""
@@ -492,7 +496,10 @@ async def get_promotions():
                 COALESCE(b.name, cpr.item_code) AS name,
                 cpr.format_name,
                 cp.item_price              AS price,
-                MIN(cpr.discounted_price)  AS promo_price
+                MIN(
+                    cpr.discounted_price / CASE WHEN cpr.min_qty IS NOT NULL AND cpr.min_qty > 1
+                                                THEN cpr.min_qty ELSE 1 END
+                ) AS promo_price
             FROM v_current_promos cpr
             LEFT JOIN v_current_prices cp
                    ON cp.item_code   = cpr.item_code
@@ -510,6 +517,8 @@ async def get_promotions():
     result = []
     for r in rows:
         rd = dict(r)
+        if rd["barcode"] not in active_bc or rd["format_name"] in disabled_fmt:
+            continue
         price, promo = rd.get("price"), rd.get("promo_price")
         rd["discount_pct"] = round((price - promo) / price * 100, 1) if price and promo else None
         result.append(rd)

@@ -176,6 +176,7 @@ def _parse_xml_stores(xml_bytes: bytes) -> tuple[list[str], dict[str, int], list
         return [], {}, []
     formats: set[str] = set()
     store_counts: dict[str, int] = {}
+    seen_store_ids: dict[str, set] = {}
     raw_stores: list[dict] = []
     # Support both standard format (<Branch>) and SAP ABAP format (<STORE>)
     branch_iter = list(root.iter("Branch")) or list(root.iter("STORE"))
@@ -186,7 +187,12 @@ def _parse_xml_stores(xml_bytes: bytes) -> tuple[list[str], dict[str, int], list
         if raw_name:
             formats.add(fmt)
             if fmt in FORMAT_KEYWORDS:
-                store_counts[fmt] = store_counts.get(fmt, 0) + 1
+                store_id = _text(_find(branch, "StoreId", "STOREID"))
+                if fmt not in seen_store_ids:
+                    seen_store_ids[fmt] = set()
+                if store_id and store_id not in seen_store_ids[fmt]:
+                    seen_store_ids[fmt].add(store_id)
+                    store_counts[fmt] = store_counts.get(fmt, 0) + 1
         raw_stores.append({
             "chain_id":       _text(_find(branch, "ChainId",       "CHAINID")),
             "chain_name":     _text(_find(branch, "ChainName",     "CHAINNAME")),
