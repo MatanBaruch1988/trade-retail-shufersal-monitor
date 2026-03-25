@@ -20,6 +20,7 @@ SQL dialect translation is applied automatically:
 import os
 import re
 import time
+from decimal import Decimal
 
 import asyncpg
 
@@ -492,7 +493,9 @@ async def get_records_by_format_ts(pairs: list[tuple[str, str]]) -> list[dict]:
             GROUP BY pf.item_code, pf.format_name, pf.item_name,
                      pf.manufacturer_name, pf.item_price, pf.source_url, pf.source_ts
         """, fmt, ts)
-        results.extend(dict(r) for r in rows)
+        for r in rows:
+            results.append({k: float(v) if isinstance(v, Decimal) else v
+                            for k, v in dict(r).items()})
     return results
 
 
