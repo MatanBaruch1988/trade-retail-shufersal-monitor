@@ -2,6 +2,19 @@
 import json
 import logging
 import time
+from decimal import Decimal
+
+
+class _DecimalEncoder(json.JSONEncoder):
+    """JSON encoder that converts Decimal to float (asyncpg NUMERIC columns)."""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
+
+
+def _dumps(obj) -> str:
+    return json.dumps(obj, cls=_DecimalEncoder, ensure_ascii=False)
 
 from backend import db
 from backend.agents import scraper_agent, parser_agent, analyzer_agent, alert_agent, insight_agent
@@ -68,10 +81,8 @@ async def run_pipeline(force: bool = False, trigger: str = "scheduled") -> dict:
             known_formats, store_counts, raw_stores = \
                 await parser_agent.download_and_parse_stores(store_file.url)
             if known_formats:
-                await db.set_status("known_formats",
-                                    json.dumps(known_formats, ensure_ascii=False))
-                await db.set_status("store_counts",
-                                    json.dumps(store_counts, ensure_ascii=False))
+                await db.set_status("known_formats", _dumps(known_formats))
+                await db.set_status("store_counts",   _dumps(store_counts))
                 logger.info("Stores: %d known formats, store_counts=%s",
                             len(known_formats), store_counts)
             if raw_stores:
@@ -163,8 +174,8 @@ async def run_pipeline(force: bool = False, trigger: str = "scheduled") -> dict:
             kpis=analysis["kpis"],
             top_alerts=alerts[:10],
         )
-        await db.set_status("insights", json.dumps(insights, ensure_ascii=False))
-        await db.set_status("kpis",     json.dumps(analysis["kpis"], ensure_ascii=False))
+        await db.set_status("insights", _dumps(insights))
+        await db.set_status("kpis",     _dumps(analysis["kpis"]))
 
         # ── 8. Update timestamps ────────────────────────────────────────────
         new_ts = scraper_result.get("latest_timestamp", "")
