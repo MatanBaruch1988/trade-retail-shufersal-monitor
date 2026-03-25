@@ -110,6 +110,31 @@ async def get_status():
 # Manual refresh
 # ──────────────────────────────────────────────────────────────────────────────
 
+@app.get("/api/debug/promo-sample")
+async def debug_promo_sample():
+    """Return sample promo_full rows with discounted_price=10 to inspect promotion_description."""
+    conn = await db.get_db()
+    try:
+        async with conn.execute("""
+            SELECT item_code, format_name, promotion_id, promotion_description,
+                   discounted_price, start_date, end_date, source_ts
+            FROM promo_full
+            WHERE discounted_price = 10
+            LIMIT 20
+        """) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+        async with conn.execute("""
+            SELECT COUNT(*) AS cnt, promotion_description, promotion_id
+            FROM promo_full WHERE discounted_price = 10
+            GROUP BY promotion_description, promotion_id
+            ORDER BY cnt DESC LIMIT 10
+        """) as cur:
+            groups = [dict(r) for r in await cur.fetchall()]
+        return {"sample": rows, "by_description": groups}
+    finally:
+        await conn.close()
+
+
 @app.post("/api/refresh")
 async def manual_refresh(force: bool = True):
     global _pipeline_running
