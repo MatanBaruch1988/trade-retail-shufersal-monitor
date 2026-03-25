@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tempo - ניטור מחירים שופרסל</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Rubik', 'sans-serif'] },
+          colors: {
+            brand: { 50:'#fef3f2', 100:'#fee4e2', 300:'#fca5a5', 500:'#ef4444', 600:'#dc2626', 700:'#b91c1c' },
+            tempo: { DEFAULT:'#e60012', dark:'#a80010' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Rubik', sans-serif; }
+    .tab-active { border-left: 3px solid #e60012; color: #e60012; font-weight: 600; background: #fef3f2; }
+    .tab-inactive { border-left: 3px solid transparent; color: #6b7280; }
+    .severity-red { background: #fee2e2; color: #991b1b; border-right: 4px solid #dc2626; }
+    .severity-yellow { background: #fef9c3; color: #854d0e; border-right: 4px solid #ca8a04; }
+    .severity-green { background: #dcfce7; color: #166534; border-right: 4px solid #16a34a; }
+    .pulse-red { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .modal-overlay { backdrop-filter: blur(4px); }
+    .cell-present { background: #bbf7d0; color: #14532d; font-weight: 600; }
+    .cell-absent { background: #f3f4f6; color: #9ca3af; }
+    table { border-collapse: collapse; }
+    th { white-space: nowrap; }
+    .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #e60012; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite; display: inline-block; }
+    @keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+    .tab-sheet-btn.sheet-active { background: #fef3f2; color: #e60012; font-weight: 700; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-900">
+
+<!-- HEADER -->
+<header class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
+  <div class="w-full px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div class="flex items-center gap-4">
+      <img src="/Tempo.svg.png" alt="טמפו" class="h-8 w-auto" />
+      <div class="text-sm text-gray-400">ניטור מחירים שופרסל</div>
+    </div>
+    <div class="flex items-center gap-3 self-end sm:self-auto">
+      <div id="alertBadge" class="hidden items-center gap-1 bg-red-100 text-red-700 text-sm font-semibold px-3 py-1 rounded-full pulse-red">
+        <span>🔴</span><span id="alertCount">0</span><span>בעיות דחופות</span>
+      </div>
+      <div id="statusBadge" class="text-xs text-gray-400">טוען...</div>
+    </div>
+  </div>
+</header>
+
+<!-- Mobile tab strip (phones only) -->
+<div class="sm:hidden bg-white border-b border-gray-200 sticky top-16 z-30">
+  <div class="px-4 flex items-center justify-between py-2.5">
+    <span id="mobileTabTitle" class="text-sm font-semibold text-tempo">התראות</span>
+    <button onclick="openTabSheet()"
+            aria-expanded="false" aria-haspopup="menu" aria-controls="tabSheet"
+            id="tabSheetTrigger"
+            class="flex items-center gap-1.5 text-sm text-gray-500 border border-gray-200
+                   rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
+      <span>החלף</span>
+      <span class="text-xs">▾</span>
+    </button>
+  </div>
+</div>
+
+<!-- Fixed sidebar (desktop only) -->
+<nav class="hidden sm:flex flex-col w-44 bg-white border-l border-gray-200 fixed top-16 right-0 bottom-0 overflow-y-auto z-20" id="tabNav">
+    <!-- Main tabs -->
+    <div class="py-3">
+      <button onclick="showTab('summary')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-active" data-tab="summary">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span>התראות</span>
+      </button>
+      <button onclick="showTab('presence')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="presence">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+        <span>מפת כיסוי</span>
+      </button>
+      <button onclick="showTab('gaps')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="gaps">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        <span>פערי תמחור</span>
+      </button>
+      <button onclick="showTab('history')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="history">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        <span>מגמות מחיר</span>
+      </button>
+      <button onclick="showTab('data-quality')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="data-quality">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        <span>כיסוי נתונים</span>
+      </button>
+      <button onclick="showTab('audit')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="audit">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>יומן מערכת</span>
+      </button>
+    </div>
+    <!-- Tools tabs (bottom) -->
+    <div class="mt-auto border-t border-gray-200 py-3">
+      <button onclick="showTab('manage')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="manage">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>ניהול</span>
+      </button>
+      <button onclick="showTab('guide')" class="tab-btn w-full flex items-center gap-2 px-4 py-3 text-sm font-medium tab-inactive" data-tab="guide">
+        <svg xmlns="http://www.w3.org/2000/svg" class="shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>מדריך</span>
+      </button>
+    </div>
+  </nav>
+
+<!-- Page layout: content offset for fixed sidebar -->
+<div id="layoutWrapper" class="sm:mr-44">
+  <main class="px-4 py-6">
+
+  <!-- ═══════════════ TAB: SUMMARY ═══════════════ -->
+  <div id="tab-summary" class="tab-content">
+
+    <!-- Action Tiles -->
+    <section class="mb-4">
+      <h2 class="text-sm font-semibold text-gray-600 mb-3">תור פעולות לפי סוג</h2>
+      <div class="grid grid-cols-3 gap-4">
+        <div onclick="openDrillDown('high_gap')"
+          class="cursor-pointer rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 transition-colors p-5 text-center">
+          <div class="text-2xl mb-1">🔴</div>
+          <div class="text-xs font-medium text-red-700 mb-2">פערי מחיר</div>
+          <div class="text-3xl font-bold text-red-600" id="tileCount_high_gap">-</div>
+          <div class="text-xs text-red-400 mt-1">מוצרים</div>
+        </div>
+        <div onclick="openDrillDown('no_promo')"
+          class="cursor-pointer rounded-xl border-2 border-yellow-200 bg-yellow-50 hover:bg-yellow-100 transition-colors p-5 text-center">
+          <div class="text-2xl mb-1">🟡</div>
+          <div class="text-xs font-medium text-yellow-700 mb-2">ללא מבצע</div>
+          <div class="text-3xl font-bold text-yellow-600" id="tileCount_no_promo">-</div>
+          <div class="text-xs text-yellow-400 mt-1">מוצרים</div>
+        </div>
+        <div onclick="openDrillDown('single_format')"
+          class="cursor-pointer rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors p-5 text-center">
+          <div class="text-2xl mb-1">🟠</div>
+          <div class="text-xs font-medium text-orange-700 mb-2">כיסוי חסר</div>
+          <div class="text-3xl font-bold text-orange-600" id="tileCount_single_format">-</div>
+          <div class="text-xs text-orange-400 mt-1">מוצרים</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Drill-Down Panel -->
+    <div id="drillDownPanel" class="hidden bg-white rounded-xl border border-gray-200 mb-4">
+      <div class="flex items-center justify-between p-4 border-b border-gray-100">
+        <h3 id="drillDownTitle" class="font-semibold text-gray-800"></h3>
+        <button onclick="closeDrillDown()" class="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+      </div>
+      <div id="drillDownBody" class="p-4 space-y-2 max-h-96 overflow-y-auto"></div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════ TAB: PRESENCE MATRIX ═══════════════ -->
+  <div id="tab-presence" class="tab-content hidden">
+    <div class="mb-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+      <input type="text" id="presenceSearch" oninput="filterPresence()"
+        placeholder="חפש מוצר..."
+        class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-tempo" />
+      <span class="text-sm text-gray-400 flex flex-wrap gap-3">
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded-sm"></span>מבצע</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-blue-100 border border-blue-300 rounded-sm"></span>קטלוגי</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 bg-gray-100 border rounded-sm"></span>לא קיים</span>
+      </span>
+    </div>
+    <div class="overflow-auto rounded-xl border border-gray-200 bg-white max-h-[70vh]">
+      <table class="text-xs w-full">
+        <thead id="presenceHead" class="bg-gray-50 text-gray-600 sticky top-0 z-20"></thead>
+        <tbody id="presenceBody" class="divide-y divide-gray-100"></tbody>
+      </table>
+    </div>
+    <p class="sm:hidden text-xs text-gray-400 text-center mt-1">← גלול לצפייה בכל הפורמטים</p>
+  </div>
+
+  <!-- ═══════════════ TAB: PRICE GAPS ═══════════════ -->
+  <div id="tab-gaps" class="tab-content hidden">
+
+    <!-- Section 1: Catalog price gaps -->
+    <h2 class="text-base font-semibold text-blue-700 mb-3 flex items-center gap-2">
+      <span>🏷️</span> פערי מחיר קטלוגי
+    </h2>
+    <div id="price-gaps-cards" class="sm:hidden space-y-2 mb-4"></div>
+    <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-blue-50 text-gray-600 text-right">
+          <tr>
+            <th class="px-4 py-3 font-medium">ברקוד</th>
+            <th class="px-4 py-3 font-medium">מוצר</th>
+            <th class="px-4 py-3 font-medium">מחיר נמוך</th>
+            <th class="px-4 py-3 font-medium">פורמט</th>
+            <th class="px-4 py-3 font-medium">מחיר גבוה</th>
+            <th class="px-4 py-3 font-medium">פורמט</th>
+            <th class="px-4 py-3 font-medium">פער ₪</th>
+            <th class="px-4 py-3 font-medium">פער %</th>
+          </tr>
+        </thead>
+        <tbody id="gapsBody" class="divide-y divide-gray-100"></tbody>
+      </table>
+    </div>
+
+    <!-- Section 2: Promo price gaps -->
+    <h2 class="text-base font-semibold text-green-700 mb-3 flex items-center gap-2">
+      <span>🎯</span> פערי מחיר מבצע
+    </h2>
+    <div id="price-gaps-cards-promo" class="sm:hidden space-y-2 mb-4"></div>
+    <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-green-50 text-gray-600 text-right">
+          <tr>
+            <th class="px-4 py-3 font-medium">ברקוד</th>
+            <th class="px-4 py-3 font-medium">מוצר</th>
+            <th class="px-4 py-3 font-medium">מחיר נמוך</th>
+            <th class="px-4 py-3 font-medium">פורמט</th>
+            <th class="px-4 py-3 font-medium">מחיר גבוה</th>
+            <th class="px-4 py-3 font-medium">פורמט</th>
+            <th class="px-4 py-3 font-medium">פער ₪</th>
+            <th class="px-4 py-3 font-medium">פער %</th>
+          </tr>
+        </thead>
+        <tbody id="gapsBodyPromo" class="divide-y divide-gray-100"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════ TAB: HISTORY ═══════════════ -->
+  <div id="tab-history" class="tab-content hidden">
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <select id="historyBarcode" onchange="onHistoryBarcodeChange()"
+        class="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-0 sm:flex-none sm:w-96 focus:outline-none focus:ring-2 focus:ring-tempo bg-white">
+        <option value="">בחר מוצר לצפייה בהיסטוריה...</option>
+      </select>
+      <div class="flex rounded-lg border border-gray-200 overflow-hidden text-sm select-none">
+        <button id="historyDayBtn7"  onclick="onHistoryDaysChange(7)"
+          class="px-3 py-1.5 text-gray-500 hover:bg-gray-50 transition-colors">7 ימים</button>
+        <button id="historyDayBtn14" onclick="onHistoryDaysChange(14)"
+          class="px-3 py-1.5 text-gray-500 hover:bg-gray-50 border-x border-gray-200 transition-colors">14 ימים</button>
+        <button id="historyDayBtn30" onclick="onHistoryDaysChange(30)"
+          class="px-3 py-1.5 bg-tempo text-white font-medium transition-colors">30 ימים</button>
+      </div>
+    </div>
+    <div id="historyKpi" class="hidden mb-4"></div>
+    <div id="historyContent">
+      <div class="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-400">
+        <p class="text-lg">📈 בחר מוצר כדי לראות היסטוריית מחירים</p>
+        <p class="text-sm mt-2">כל ריצת pipeline שומרת snapshot - 30 ימים אחורה</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ TAB: DATA QUALITY ═══════════════ -->
+  <div id="tab-data-quality" class="tab-content hidden">
+
+    <!-- Day Completeness Banner -->
+    <div id="dqDayBanner" class="rounded-xl border p-4 mb-4 flex flex-wrap items-center justify-between gap-3 bg-gray-50 border-gray-200">
+      <div class="text-sm text-gray-400">טוען...</div>
+    </div>
+
+    <!-- Section 1: Format freshness table -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <div class="p-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-800 flex items-center gap-2"><span>📡</span> עדכניות מידע לפי פורמט</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-right text-xs font-medium text-gray-500">
+            <tr>
+              <th class="px-4 py-2">פורמט</th>
+              <th class="px-4 py-2 text-center">עדכון אחרון</th>
+              <th class="px-4 py-2 text-center">סניפים נטענו</th>
+              <th class="px-4 py-2 text-center">סניפים כולל</th>
+              <th class="px-4 py-2 text-center">כיסוי סניפים</th>
+              <th class="px-4 py-2 text-center">ברקודים נטענו</th>
+              <th class="px-4 py-2 text-center">ברקודים טמפו</th>
+              <th class="px-4 py-2 text-center">כיסוי ברקודים</th>
+              <th class="px-4 py-2 text-center">סטטוס</th>
+            </tr>
+          </thead>
+          <tbody id="dqFormatFreshnessBody">
+            <tr><td colspan="9" class="text-center py-4 text-gray-400 text-sm">טוען...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Section 2: Barcode coverage -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="p-4 border-b border-gray-100">
+        <div class="mb-3">
+          <h2 class="font-semibold text-gray-800 flex items-center gap-2"><span>🏷️</span> כיסוי ברקודים</h2>
+        </div>
+        <div class="grid grid-cols-3 gap-4 mt-3">
+          <div class="bg-gray-50 rounded-lg p-3 text-center">
+            <div class="text-2xl font-bold text-gray-700" id="dqTotal">-</div>
+            <div class="text-xs text-gray-500 mt-1">ברקודים ידועים</div>
+          </div>
+          <div class="bg-green-50 rounded-lg p-3 text-center">
+            <div class="text-2xl font-bold text-green-600" id="dqFound">-</div>
+            <div class="text-xs text-gray-500 mt-1">הגיעו בפועל</div>
+          </div>
+          <div class="bg-red-50 rounded-lg p-3 text-center">
+            <div class="text-2xl font-bold text-red-600" id="dqMissingBC">-</div>
+            <div class="text-xs text-gray-500 mt-1">חסרים</div>
+          </div>
+        </div>
+      </div>
+      <!-- Mobile cards -->
+      <div id="dqMissingBCCards" class="sm:hidden divide-y divide-gray-100"></div>
+      <!-- Desktop table -->
+      <div class="hidden sm:block overflow-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-right">
+            <tr>
+              <th class="px-4 py-2 font-medium text-gray-600">שם מוצר</th>
+              <th class="px-4 py-2 font-medium text-gray-600 font-mono text-xs">ברקוד</th>
+            </tr>
+          </thead>
+          <tbody id="dqMissingBCBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+
+  </div>
+
+
+  <!-- ═══════════════ TAB: AUDIT ═══════════════ -->
+  <div id="tab-audit" class="tab-content hidden">
+
+    <!-- Header row -->
+    <div class="mb-6">
+      <h1 class="text-lg font-semibold text-gray-800">יומן מערכת</h1>
+    </div>
+
+    <!-- KPI summary -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6" id="auditKpis">
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-3xl font-bold text-gray-800" id="auditLastRun">-</div>
+        <div class="text-sm text-gray-500 mt-1">ריצה אחרונה</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-3xl font-bold text-green-600" id="auditSuccessRate">-</div>
+        <div class="text-sm text-gray-500 mt-1">% הצלחה (10 אחרונות)</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-3xl font-bold text-blue-600" id="auditTotalRuns">-</div>
+        <div class="text-sm text-gray-500 mt-1">סה"כ ריצות</div>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="text-3xl font-bold text-red-600" id="auditFailedFiles">-</div>
+        <div class="text-sm text-gray-500 mt-1">קבצים שנכשלו (7 ימים)</div>
+      </div>
+    </div>
+
+    <!-- Calendar Grid -->
+    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+      <div class="p-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-800 flex items-center gap-2"><span>📅</span> כיסוי יומי - 10 ימים אחרונים</h2>
+        <div class="text-xs text-gray-400 mt-1 flex gap-4 flex-wrap">
+          <span>✅ עודכן</span><span>⚠️ מעט ברקודים</span><span>🔄 ממתין</span><span>❌ לא הגיע</span>
+        </div>
+      </div>
+      <div id="auditCalendarGrid" class="overflow-x-auto p-3"></div>
+    </div>
+
+    <!-- Run history -->
+    <!-- Mobile cards -->
+    <div id="auditCards" class="sm:hidden space-y-2 mb-4"></div>
+    <!-- Desktop table -->
+    <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div class="p-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-800">היסטוריית ריצות pipeline</h2>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-right text-xs font-medium text-gray-500">
+            <tr>
+              <th class="px-4 py-2">זמן</th>
+              <th class="px-4 py-2">סטטוס</th>
+              <th class="px-4 py-2">טריגר</th>
+              <th class="px-4 py-2 text-center">נתונים מ:</th>
+              <th class="px-4 py-2 text-center">מוצרים לפני</th>
+              <th class="px-4 py-2 text-center">אחרי</th>
+              <th class="px-4 py-2 text-center">קבצים</th>
+              <th class="px-4 py-2 text-center">שגיאות</th>
+              <th class="px-4 py-2 text-center">זמן (שנ')</th>
+            </tr>
+          </thead>
+          <tbody id="auditBody" class="divide-y divide-gray-100">
+            <tr><td colspan="9" class="text-center py-8 text-gray-400">טוען...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="sm:hidden text-xs text-gray-400 text-center mt-1">← גלול לפרטי הריצות</p>
+  </div>
+
+  <!-- ═══════════════ TAB: MANAGE ═══════════════ -->
+  <div id="tab-manage" class="tab-content hidden">
+    <div class="flex flex-col sm:flex-row gap-6">
+
+    <!-- ── Section: Barcodes (right in RTL) ──────────────── -->
+    <div class="flex-1 min-w-0">
+    <div>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-gray-900">ניהול ברקודים</h2>
+          <p class="text-xs text-gray-500 mt-0.5">הוסף, הסר, או טען רשימה מ-Excel. שמות מוצרים ממולאים אוטומטית מהנתונים שהורדו.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label id="excelLabel"
+                 class="cursor-pointer bg-white border border-gray-300 text-gray-700 text-sm px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors font-medium flex items-center gap-1.5">
+            <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            טעינה מ-Excel
+            <input type="file" accept=".xlsx,.xls" class="hidden" id="excelFileInput" onchange="handleExcelImport(this)">
+          </label>
+          <span id="manageBarcodCount" class="text-sm text-gray-500 hidden"></span>
+        </div>
+      </div>
+
+      <!-- Excel import instructions -->
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-700">
+        <strong>פורמט Excel:</strong> עמודה A = ברקוד בלבד. <strong>אין צורך בעמודת שם</strong> - שמות המוצרים ממולאים אוטומטית מנתוני שופרסל לאחר ולידציה.
+        <span class="text-red-600 font-semibold mr-2">שים לב: טעינה תדרוס את כל הברקודים הקיימים.</span>
+      </div>
+
+      <!-- Add barcode form -->
+      <div class="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+        <div class="flex gap-2 items-end">
+          <div class="flex-1">
+            <label class="block text-xs font-medium text-gray-600 mb-1">ברקוד</label>
+            <input id="newBarcodeInput" type="text" inputmode="numeric" placeholder="הזן ברקוד (7-13 ספרות)"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tempo focus:border-transparent"
+                   onkeydown="if(event.key==='Enter') lookupAndFillName()"
+                   oninput="clearBarcodeNamePreview()">
+          </div>
+          <div class="flex-1">
+            <label class="block text-xs font-medium text-gray-600 mb-1">שם מוצר <span class="text-gray-400 font-normal">(אוטומטי מנתוני שופרסל)</span></label>
+            <input id="newBarcodeNameInput" type="text" placeholder="ימולא אוטומטית לאחר חיפוש..." readonly
+                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-100 text-gray-600 cursor-not-allowed select-none">
+          </div>
+          <button onclick="lookupAndFillName()"
+                  class="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-sm hover:bg-gray-50 transition-colors whitespace-nowrap">
+            חפש שם
+          </button>
+          <button onclick="submitAddBarcode()"
+                  class="bg-tempo text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors whitespace-nowrap">
+            + הוסף
+          </button>
+        </div>
+        <div id="addBarcodeError" class="text-xs text-red-600 mt-2 hidden"></div>
+      </div>
+
+      <!-- No-name alert banner -->
+      <div id="noNameAlert" class="hidden bg-amber-50 border border-amber-300 rounded-lg px-4 py-3 mb-4 text-sm text-amber-800">
+        <strong>⚠️ ברקודים ללא שם:</strong>
+        <span id="noNameList"></span>
+        <span class="text-amber-600"> - שמות אלו לא נמצאו בנתוני Shufersal. ניתן לערוך ידנית.</span>
+      </div>
+
+      <!-- Barcodes table (desktop) -->
+      <div class="hidden sm:block bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">ברקוד</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">שם מוצר</th>
+              <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600">פעיל</th>
+              <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600">פעולה</th>
+            </tr>
+          </thead>
+          <tbody id="barcodesTableBody">
+            <tr><td colspan="4" class="text-center py-8 text-gray-400">טוען...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Barcodes cards (mobile) -->
+      <div id="barcodesCards" class="sm:hidden space-y-2"></div>
+    </div>
+    </div><!-- /barcodes column -->
+
+    <!-- ── Section: Formats (left in RTL) ────────────────── -->
+    <div class="sm:w-64 shrink-0">
+      <div class="mb-4">
+        <h2 class="text-lg font-bold text-gray-900">ניהול פורמטים</h2>
+        <p class="text-xs text-gray-500 mt-0.5">בחר אילו פורמטים ייכללו בניתוח ובדוחות.</p>
+      </div>
+      <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="px-4 py-3 text-right text-xs font-semibold text-gray-600">שם פורמט</th>
+              <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600">סניפים</th>
+              <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600">מצב</th>
+            </tr>
+          </thead>
+          <tbody id="formatsTableBody">
+            <tr><td colspan="3" class="text-center py-8 text-gray-400">טוען...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    </div><!-- /flex row -->
+  </div><!-- /tab-manage -->
+
+  <!-- ═══════════════ TAB: GUIDE ═══════════════
+       ⚠️  LIVING DOCUMENT — עדכן גיליון זה בכל שינוי בפרויקט:
+         · הוספת/הסרת agent או שלב בפייפליין
+         · שינוי סכמת קבצים (PriceFull / PromoFull / Stores)
+         · שינוי לוח זמנים (APScheduler)
+         · הוספת גיליון חדש לדשבורד
+         · שינוי לוגיקת סינון / ברקודים / פורמטים
+         · כל שינוי ב-backend/agents/ או backend/main.py
+       ══════════════════════════════════════════ -->
+  <div id="tab-guide" class="tab-content hidden">
+
+    <!-- Header -->
+    <div class="mb-8 pb-6 border-b border-gray-200">
+      <h1 class="text-2xl font-bold text-gray-900 mb-1">מדריך המערכת</h1>
+      <p class="text-sm text-gray-500">הסבר אינטראקטיבי על מקור הנתונים, תהליך הפייפליין, וכל גיליון - לאפשר למשתמש העסקי הבנה וגישה קלה לתיקונים</p>
+    </div>
+
+    <!-- ══ FLOW ══ -->
+    <div class="space-y-3" id="guideAccordions">
+
+      <!-- ─ 0. Data Source ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-blue-200 bg-blue-50">
+        <button onclick="toggleGuide('g0')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-blue-100 transition-colors">
+          <span class="text-2xl">🌐</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-blue-900 text-base">מקור הנתונים - אתר שקיפות מחירים</div>
+            <div class="text-xs text-blue-600 mt-0.5">חוק שקיפות מחירים · prices.shufersal.co.il · קבצי XML/GZ</div>
+          </div>
+          <span id="g0-arrow" class="text-blue-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g0" class="hidden px-5 pb-5 border-t border-blue-200 bg-white">
+          <div class="grid sm:grid-cols-2 gap-6 pt-4">
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">📜 בסיס חוקי</h3>
+              <p class="text-xs text-gray-600 leading-relaxed">
+                <strong>חוק שקיפות מחירים ותחרות (2014)</strong> מחייב רשתות קמעונאיות לפרסם מחירים מלאים ועדכניים באתר ייעודי. שופרסל מפרסמת נתונים בכתובת <code class="bg-gray-100 px-1 rounded">prices.shufersal.co.il</code>.
+              </p>
+              <div class="mt-3 space-y-1 text-xs text-gray-600">
+                <div>📅 <strong>עדכון PriceFull:</strong> פעם ביום ~03:00</div>
+                <div>📅 <strong>עדכון PromoFull:</strong> מספר פעמים ביום</div>
+                <div>📦 <strong>פורמט:</strong> XML דחוס ב-GZ</div>
+                <div>🗂 <strong>היסטוריה באינדקס:</strong> ~2 חודשים (~87 עמודים)</div>
+                <div>🔑 <strong>גישה:</strong> פומבית, ללא אימות - SAS tokens ב-URL</div>
+              </div>
+            </div>
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">📁 סוגי קבצים</h3>
+              <table class="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-1.5 text-right font-semibold text-gray-700">סוג</th>
+                    <th class="px-2 py-1.5 text-right font-semibold text-gray-700">תוכן</th>
+                    <th class="px-2 py-1.5 text-right font-semibold text-gray-700">תדירות</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <tr class="hover:bg-gray-50"><td class="px-2 py-1.5 font-mono font-bold text-blue-700">PriceFull</td><td class="px-2 py-1.5 text-gray-600">כל המוצרים + מחיר מדף</td><td class="px-2 py-1.5 text-gray-500">יומי</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-2 py-1.5 font-mono font-bold text-green-700">PromoFull</td><td class="px-2 py-1.5 text-gray-600">כל המבצעים הפעילים</td><td class="px-2 py-1.5 text-gray-500">רב-יומי</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-2 py-1.5 font-mono font-bold text-purple-700">Stores</td><td class="px-2 py-1.5 text-gray-600">סניפים + שרשרות</td><td class="px-2 py-1.5 text-gray-500">נדיר</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-2 py-1.5 font-mono text-gray-600">Price</td><td class="px-2 py-1.5 text-gray-600">מחירים דלתא לסניף</td><td class="px-2 py-1.5 text-gray-500">יומי</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-2 py-1.5 font-mono text-gray-600">Promo</td><td class="px-2 py-1.5 text-gray-600">מבצעים דלתא לסניף</td><td class="px-2 py-1.5 text-gray-500">יומי</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Schemas -->
+          <div class="mt-5 grid sm:grid-cols-3 gap-4">
+            <div class="bg-blue-50 rounded-xl p-3">
+              <div class="font-bold text-blue-800 text-xs mb-2">סכמה: PriceFull</div>
+              <div class="text-xs text-gray-700 space-y-0.5 font-mono">
+                <div>ChainId, StoreId</div>
+                <div class="text-blue-700 font-bold">ItemCode ← ברקוד</div>
+                <div class="text-blue-700 font-bold">ItemName ← שם</div>
+                <div class="text-blue-700 font-bold">ItemPrice ← מחיר מדף</div>
+                <div class="text-blue-700 font-bold">ManufacturerName</div>
+                <div class="text-gray-400">ManufacturerItemDescription</div>
+                <div class="text-gray-400">UnitOfMeasure, Quantity</div>
+                <div class="text-gray-400">AllowDiscount, ItemStatus</div>
+              </div>
+            </div>
+            <div class="bg-green-50 rounded-xl p-3">
+              <div class="font-bold text-green-800 text-xs mb-2">סכמה: PromoFull</div>
+              <div class="text-xs text-gray-700 space-y-0.5 font-mono">
+                <div>PromotionId</div>
+                <div>PromotionDescription</div>
+                <div>StartDate, EndDate</div>
+                <div class="text-green-700 font-bold">DiscountedPrice ← מחיר מבצע</div>
+                <div class="text-green-700 font-bold">MinQty ← כמות מינימום</div>
+                <div class="text-green-600">Items → ItemCode</div>
+                <div class="text-green-600">Items → ItemPrice</div>
+              </div>
+            </div>
+            <div class="bg-purple-50 rounded-xl p-3">
+              <div class="font-bold text-purple-800 text-xs mb-2">סכמה: Stores</div>
+              <div class="text-xs text-gray-700 space-y-0.5 font-mono">
+                <div>ChainId, ChainName</div>
+                <div class="text-purple-700 font-bold">SubChainName ← פורמט</div>
+                <div>SubChainCode</div>
+                <div>StoreId, StoreName</div>
+                <div>City, Address</div>
+                <div>StoreType</div>
+                <div class="text-gray-400">Latitude, Longitude</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+            <strong>💡 נקודה חשובה:</strong> PriceFull כולל <em>כל</em> המוצרים בסניף - לא רק של טמפו. הסינון לפי ברקודים פעילים מתבצע בפרסר. PromoFull כולל רק פריטים שנמצאים במבצע כרגע - מוצר ללא מבצע לא יופיע כאן כלל.
+          </div>
+
+          <!-- ── דוגמאות נתונים אמיתיים ── -->
+          <div class="mt-5">
+            <div class="font-semibold text-gray-700 text-xs mb-3">📋 דוגמאות מנתוני טמפו אמיתיים (10 שורות לכל קובץ)</div>
+
+            <!-- PriceFull -->
+            <div class="mb-4">
+              <div class="text-xs font-bold text-blue-700 mb-1.5">PriceFull — מחירי מדף (שדות XML גולמיים)</div>
+              <div class="overflow-x-auto rounded-xl border border-blue-100">
+                <table class="text-xs border-collapse whitespace-nowrap">
+                  <thead class="bg-blue-50 text-blue-800">
+                    <tr>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">ChainId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">StoreId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">ItemCode</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">ItemName</th>
+                      <th class="px-2 py-1.5 text-left font-semibold border-b border-blue-100">ItemPrice</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">ManufacturerName</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">ManufacturerItemDescription</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-blue-100">UnitOfMeasure</th>
+                      <th class="px-2 py-1.5 text-left font-semibold border-b border-blue-100">Quantity</th>
+                      <th class="px-2 py-1.5 text-center font-semibold border-b border-blue-100">AllowDiscount</th>
+                      <th class="px-2 py-1.5 text-center font-semibold border-b border-blue-100">ItemStatus</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-blue-50">
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">11182700954</td><td class="px-2 py-1">שעועית שחורה 439 גרם</td><td class="px-2 py-1 text-left font-bold">11.20</td><td class="px-2 py-1 text-gray-600">האנאובר פודס קורפורש</td><td class="px-2 py-1 text-gray-500">שעועית שחורה 439 גרם</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">439.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">11210000094</td><td class="px-2 py-1">רוטב טבסקו 60 מ"ל</td><td class="px-2 py-1 text-left font-bold">12.90</td><td class="px-2 py-1 text-gray-600">ניצן</td><td class="px-2 py-1 text-gray-500">רוטב טבסקו 60 מ"ל</td><td class="px-2 py-1">100 מ"ל</td><td class="px-2 py-1 text-left">60.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">11210009387</td><td class="px-2 py-1">רוטב טבסקו ירוק 60 מ"ל</td><td class="px-2 py-1 text-left font-bold">12.90</td><td class="px-2 py-1 text-gray-600">ניצן</td><td class="px-2 py-1 text-gray-500">רוטב טבסקו ירוק 60 מ"ל</td><td class="px-2 py-1">100 מ"ל</td><td class="px-2 py-1 text-left">60.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">13300280676</td><td class="px-2 py-1">תע.להכנת וופל ופנקייק 907</td><td class="px-2 py-1 text-left font-bold">29.90</td><td class="px-2 py-1 text-gray-600">ג.'מ. סמוקרס מרקטינג</td><td class="px-2 py-1 text-gray-500">תע.להכנת וופל ופנקייק</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">907.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">16000423534</td><td class="px-2 py-1">חטיף שיבולת ושוקולד 5יח</td><td class="px-2 py-1 text-left font-bold">21.90</td><td class="px-2 py-1 text-gray-600">ג'נרל מילס סאן אדריא</td><td class="px-2 py-1 text-gray-500">קראנצי שיבולת ושוקולד</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">210.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">16000548404</td><td class="px-2 py-1">חטיף נייטשר וואלי דבש 5יח</td><td class="px-2 py-1 text-left font-bold">21.90</td><td class="px-2 py-1 text-gray-600">ג'נרל מילס סאן אדריא</td><td class="px-2 py-1 text-gray-500">חטיף נייטשר וואלי דבש</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">210.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">16000548503</td><td class="px-2 py-1">נייטשר וואלי מייפל 5יח</td><td class="px-2 py-1 text-left font-bold">21.90</td><td class="px-2 py-1 text-gray-600">ג'נרל מילס סאן אדריא</td><td class="px-2 py-1 text-gray-500">נייטשר וואלי מייפל 5יח</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">210.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">16000548909</td><td class="px-2 py-1">חט.נייטשר וואלי מעורב 5יח</td><td class="px-2 py-1 text-left font-bold">21.90</td><td class="px-2 py-1 text-gray-600">ג'נרל מילס סאן אדריא</td><td class="px-2 py-1 text-gray-500">חט.נייטשר וואלי מעורב</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">210.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">18000701223</td><td class="px-2 py-1">תערובת לעוגת שוקולד 425גר</td><td class="px-2 py-1 text-left font-bold">21.90</td><td class="px-2 py-1 text-gray-600">ג'נרל מילס</td><td class="px-2 py-1 text-gray-500">תערובת לעוגת שוקולד</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">425.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                    <tr class="hover:bg-blue-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">089</td><td class="px-2 py-1 font-mono text-blue-700">22200956932</td><td class="px-2 py-1">ספיד סטיק גל 24/7 כחול 85ג</td><td class="px-2 py-1 text-left font-bold">21.90</td><td class="px-2 py-1 text-gray-600">קולגייט-פלמוליב</td><td class="px-2 py-1 text-gray-500">ספיד סטיק גל 24/7 כחול</td><td class="px-2 py-1">100 גרם</td><td class="px-2 py-1 text-left">85.00</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- PromoFull -->
+            <div class="mb-4">
+              <div class="text-xs font-bold text-green-700 mb-1.5">PromoFull — מבצעים פעילים (שדות XML גולמיים)</div>
+              <div class="overflow-x-auto rounded-xl border border-green-100">
+                <table class="text-xs border-collapse whitespace-nowrap">
+                  <thead class="bg-green-50 text-green-800">
+                    <tr>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">ChainId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">StoreId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">PromotionId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">PromotionDescription</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">StartDate</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">EndDate</th>
+                      <th class="px-2 py-1.5 text-left font-semibold border-b border-green-100">DiscountedPrice</th>
+                      <th class="px-2 py-1.5 text-left font-semibold border-b border-green-100">MinQty</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-green-100">Items→ItemCode</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-green-50">
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">3991981</td><td class="px-2 py-1">משלוח מיוחד 29 ש"ח בקניה מעל 200</td><td class="px-2 py-1">2024-11-01</td><td class="px-2 py-1">2030-02-01</td><td class="px-2 py-1 text-left font-bold">29.00</td><td class="px-2 py-1 text-left">1.000</td><td class="px-2 py-1 font-mono text-gray-500">7290000009964</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">3991984</td><td class="px-2 py-1">משלוח רגיל 29 ש"ח בקניה מעל 200</td><td class="px-2 py-1">2024-11-01</td><td class="px-2 py-1">2030-02-01</td><td class="px-2 py-1 text-left font-bold">29.00</td><td class="px-2 py-1 text-left">1.000</td><td class="px-2 py-1 font-mono text-gray-500">7290000009988</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4346866</td><td class="px-2 py-1">ב2- ב60 ש"ח המבורגר/קבב/נקנקיות</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">60.00</td><td class="px-2 py-1 text-left">2.000</td><td class="px-2 py-1 font-mono text-gray-500">7296073728696</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4347123</td><td class="px-2 py-1">ב2-ב60 המבורגר/קבב אנגוס חלק</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">60.00</td><td class="px-2 py-1 text-left">2.000</td><td class="px-2 py-1 font-mono text-gray-500">7296073747345</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4379304</td><td class="px-2 py-1">קטיף 2ב39.90 תות שדה יחידה</td><td class="px-2 py-1">2026-02-16</td><td class="px-2 py-1">2026-03-30</td><td class="px-2 py-1 text-left font-bold">39.90</td><td class="px-2 py-1 text-left">2.000</td><td class="px-2 py-1 font-mono text-gray-500">7290013090256</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4382434</td><td class="px-2 py-1">3ב10.90 עוגיות סנדוויץ שוקו/וניל</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">10.90</td><td class="px-2 py-1 text-left">3.000</td><td class="px-2 py-1 font-mono text-gray-500">710069006867</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4382435</td><td class="px-2 py-1">4ב10 ביסקוויט תה הדר/קרקר טופז</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">10.00</td><td class="px-2 py-1 text-left">4.000</td><td class="px-2 py-1 font-mono text-gray-500">7290011489625</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4382436</td><td class="px-2 py-1">3ב18 ביסקוויט תירוש 175 גרם</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">18.00</td><td class="px-2 py-1 text-left">3.000</td><td class="px-2 py-1 font-mono text-gray-500">7290000034256</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4382437</td><td class="px-2 py-1">2ב15 לחם איטלקי 290 גרם</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">15.00</td><td class="px-2 py-1 text-left">2.000</td><td class="px-2 py-1 font-mono text-gray-500">7290001902134</td></tr>
+                    <tr class="hover:bg-green-50/40"><td class="px-2 py-1 font-mono text-gray-400">7290027600007</td><td class="px-2 py-1 font-mono text-gray-400">001</td><td class="px-2 py-1 font-mono text-green-700">4382438</td><td class="px-2 py-1">4ב18 חצי גבטה גדרון</td><td class="px-2 py-1">2026-03-01</td><td class="px-2 py-1">2026-03-28</td><td class="px-2 py-1 text-left font-bold">18.00</td><td class="px-2 py-1 text-left">4.000</td><td class="px-2 py-1 font-mono text-gray-500">7290000094373</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Stores -->
+            <div>
+              <div class="text-xs font-bold text-purple-700 mb-1.5">Stores — סניפים ושרשרות <span class="font-normal text-gray-400">(Latitude/Longitude ריקים בפועל בנתוני שופרסל)</span></div>
+              <div class="overflow-x-auto rounded-xl border border-purple-100">
+                <table class="text-xs border-collapse whitespace-nowrap">
+                  <thead class="bg-purple-50 text-purple-800">
+                    <tr>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">ChainId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">ChainName</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">SubChainName</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">SubChainCode</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">StoreId</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">StoreName</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">City</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">Address</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">StoreType</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">Latitude</th>
+                      <th class="px-2 py-1.5 text-right font-semibold border-b border-purple-100">Longitude</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-purple-50">
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שופרסל שלי</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1">שלי ת"א- בן יהודה</td><td class="px-2 py-1">תל אביב</td><td class="px-2 py-1">בן יהודה 79</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שופרסל שלי</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">2</td><td class="px-2 py-1">שלי ירושלים- אגרון</td><td class="px-2 py-1">ירושלים</td><td class="px-2 py-1">אגרון 1</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שופרסל שלי</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">3</td><td class="px-2 py-1">שלי גבעתיים- סירקין</td><td class="px-2 py-1">גבעתיים</td><td class="px-2 py-1">סירקין 17</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שופרסל שלי</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-center">4</td><td class="px-2 py-1">שלי חיפה- כרמל</td><td class="px-2 py-1">חיפה</td><td class="px-2 py-1">שד' הנשיא 124</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שופרסל אקספרס</td><td class="px-2 py-1 text-center">7</td><td class="px-2 py-1 text-center">140</td><td class="px-2 py-1">אקספרס תל חי</td><td class="px-2 py-1 text-gray-300">—</td><td class="px-2 py-1 text-gray-300">—</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שופרסל דיל</td><td class="px-2 py-1 text-center">2</td><td class="px-2 py-1 text-center">312</td><td class="px-2 py-1">דיל חיפה- קרית אליעזר</td><td class="px-2 py-1">חיפה</td><td class="px-2 py-1">ככר מאירהוף</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">יש חסד</td><td class="px-2 py-1 text-center">6</td><td class="px-2 py-1 text-center">364</td><td class="px-2 py-1">יש חסד בית וגן</td><td class="px-2 py-1">ירושלים</td><td class="px-2 py-1">זנגוויל 1</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">שערי רווחה</td><td class="px-2 py-1 text-center">3</td><td class="px-2 py-1 text-center">176</td><td class="px-2 py-1">שערי רווחה ירושלים</td><td class="px-2 py-1">ירושלים</td><td class="px-2 py-1">לואיס ברנדס 3</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">יוניברס</td><td class="px-2 py-1 text-center">8</td><td class="px-2 py-1 text-center">210</td><td class="px-2 py-1">יוניברס ראשל"צ- שמוטקין</td><td class="px-2 py-1">ראשון לציון</td><td class="px-2 py-1">שמוטקין 30</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                    <tr class="hover:bg-purple-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290027600007</td><td class="px-2 py-1">שופרסל</td><td class="px-2 py-1 font-semibold text-purple-700">יש בשכונה</td><td class="px-2 py-1 text-center">15</td><td class="px-2 py-1 text-center">12</td><td class="px-2 py-1">יש בני ברק- ירושלים</td><td class="px-2 py-1">בני-ברק</td><td class="px-2 py-1">ירושלים 70</td><td class="px-2 py-1 text-center">1</td><td class="px-2 py-1 text-gray-300 text-center">—</td><td class="px-2 py-1 text-gray-300 text-center">—</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="flex justify-center text-gray-300 text-xl select-none">↓</div>
+
+      <!-- ─ 1. Scraper ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-orange-200 bg-orange-50">
+        <button onclick="toggleGuide('g1')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-orange-100 transition-colors">
+          <span class="text-2xl">🔍</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-orange-900 text-base">שלב 1 - Scraper: סריקת אינדקס שופרסל</div>
+            <div class="text-xs text-orange-600 mt-0.5">backend/agents/scraper_agent.py · מופעל בכל ריצת pipeline</div>
+          </div>
+          <span id="g1-arrow" class="text-orange-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g1" class="hidden px-5 pb-5 border-t border-orange-200 bg-white">
+          <div class="pt-4 grid sm:grid-cols-2 gap-5">
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">⚙️ מה עושה השלב</h3>
+              <ol class="text-xs text-gray-600 space-y-1.5 list-decimal list-inside leading-relaxed">
+                <li>מוריד <strong>עמוד 1</strong> של האינדקס ובודק timestamp אחרון</li>
+                <li><strong>בדיקת רעננות:</strong> אם ה-timestamp זהה לריצה קודמת - עוצר (no new data)</li>
+                <li>סורק <strong>כל העמודים</strong> במקביל לאיתור PromoFull / PriceFull / Stores</li>
+                <li>מסנן קבצים לפי <strong>פורמטים מוכרים</strong> (FORMAT_KEYWORDS)</li>
+                <li>מחזיר רשימת FileEntry עם url, filename, file_type, store_type, timestamp</li>
+              </ol>
+            </div>
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">📊 נתוני ריצה אחרונה (אמיתיים)</h3>
+              <div class="text-xs space-y-1.5">
+                <div class="flex justify-between bg-orange-50 rounded px-2 py-1"><span>עמודים באינדקס שופרסל</span><span class="font-mono font-bold">~87</span></div>
+                <div class="flex justify-between bg-orange-50 rounded px-2 py-1"><span>קבצים שנסרקו (PromoFull+PriceFull)</span><span class="font-mono font-bold">836</span></div>
+                <div class="flex justify-between bg-orange-50 rounded px-2 py-1"><span>קבצים שנכשלו</span><span class="font-mono font-bold text-green-600">0</span></div>
+                <div class="flex justify-between bg-orange-50 rounded px-2 py-1"><span>מוצרים ב-DB לאחר הריצה</span><span class="font-mono font-bold">1,085</span></div>
+                <div class="flex justify-between bg-orange-50 rounded px-2 py-1"><span>התראות פעילות שנוצרו</span><span class="font-mono font-bold">105</span></div>
+                <div class="flex justify-between bg-orange-50 rounded px-2 py-1"><span>זמן ריצה כולל (pipeline)</span><span class="font-mono font-bold">891 שנ'</span></div>
+              </div>
+              <div class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-2.5 text-xs text-amber-800">
+                <strong>⚠️ שים לב:</strong> קבצים של פורמטים לא מוכרים נמחקים. לנהל פורמטים דרך <button onclick="showTab('manage')" class="underline text-blue-600 hover:text-blue-800">גיליון ניהול</button>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center text-gray-300 text-xl select-none">↓</div>
+
+      <!-- ─ 2. Parser ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-indigo-200 bg-indigo-50">
+        <button onclick="toggleGuide('g3')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-indigo-100 transition-colors">
+          <span class="text-2xl">⚙️</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-indigo-900 text-base">שלב 2 - Parser: הורדה ופרסור קבצים</div>
+            <div class="text-xs text-indigo-600 mt-0.5">parser_agent.run · PromoFull + PriceFull + Stores · מקביל עם semaphore=50</div>
+          </div>
+          <span id="g3-arrow" class="text-indigo-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g3" class="hidden px-5 pb-5 border-t border-indigo-200 bg-white">
+          <div class="pt-4 grid sm:grid-cols-2 gap-5">
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">⚙️ מה עושה השלב</h3>
+              <ol class="text-xs text-gray-600 space-y-1.5 list-decimal list-inside leading-relaxed">
+                <li><strong>Stores:</strong> מוריד ומפרסר קובץ סניפים → מפה פורמט→מספר סניפים</li>
+                <li><strong>Cache בדיקה:</strong> PriceFull שכבר ב-DB עם אותו source_ts - לא מורד שוב</li>
+                <li><strong>PromoFull:</strong> מוריד במקביל, מחלץ (ברקוד, מחיר מבצע, MinQty)</li>
+                <li><strong>PriceFull:</strong> מוריד במקביל, מחלץ (ברקוד, מחיר מדף)</li>
+                <li><strong>Bundle normalization:</strong> MinQty&gt;1 → מחיר מבצע = DiscountedPrice / MinQty</li>
+                <li><strong>Merge:</strong> PriceFull כבסיס, PromoFull מוסיף promo_price</li>
+              </ol>
+            </div>
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">🗃️ מבנה רשומה מוצר</h3>
+              <table class="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
+                <thead class="bg-indigo-50"><tr><th class="px-2 py-1 text-right">שדה</th><th class="px-2 py-1 text-right">מקור</th></tr></thead>
+                <tbody class="divide-y divide-gray-100">
+                  <tr><td class="px-2 py-1 font-mono">barcode</td><td class="px-2 py-1 text-gray-500">ItemCode</td></tr>
+                  <tr><td class="px-2 py-1 font-mono">name</td><td class="px-2 py-1 text-gray-500">ItemName</td></tr>
+                  <tr><td class="px-2 py-1 font-mono">format_name</td><td class="px-2 py-1 text-gray-500">SubChainName→מיפוי</td></tr>
+                  <tr><td class="px-2 py-1 font-mono">price</td><td class="px-2 py-1 text-gray-500">PriceFull.ItemPrice</td></tr>
+                  <tr><td class="px-2 py-1 font-mono">promo_price</td><td class="px-2 py-1 text-gray-500">PromoFull.DiscountedPrice/MinQty</td></tr>
+                  <tr><td class="px-2 py-1 font-mono">discount_pct</td><td class="px-2 py-1 text-gray-500">חישוב: (price-promo)/price</td></tr>
+                  <tr><td class="px-2 py-1 font-mono">source_ts</td><td class="px-2 py-1 text-gray-500">timestamp בשם הקובץ</td></tr>
+                </tbody>
+              </table>
+              <div class="mt-2 bg-indigo-50 rounded-xl p-2.5 text-xs text-indigo-800">
+                <strong>Cache:</strong> אם source_ts של PriceFull לא השתנה ורשימת הברקודים לא שונתה - הנתונים נלקחים מה-DB ישירות ללא הורדה.
+              </div>
+            </div>
+          </div>
+
+          <!-- Real merged records example -->
+          <div class="mt-5">
+            <div class="font-semibold text-gray-700 text-xs mb-2">📋 דוגמה: רשומות מוצר לאחר Merge (PriceFull + PromoFull)</div>
+            <div class="overflow-x-auto rounded-xl border border-indigo-100">
+              <table class="w-full text-xs border-collapse whitespace-nowrap">
+                <thead class="bg-indigo-50 text-indigo-800">
+                  <tr>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-indigo-100">ברקוד</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-indigo-100">שם מוצר</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-indigo-100">פורמט</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-indigo-100">מחיר מדף ₪</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-indigo-100">מחיר מבצע ₪</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-indigo-100">source_ts</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-indigo-50">
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">4066600601920</td><td class="px-2 py-1">בירה פאולנר חיטה פחית 500מ"ל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">12.9</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">4066600999614</td><td class="px-2 py-1">בירה פאולנר חיטה 500מ"ל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">14.9</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">5010677551281</td><td class="px-2 py-1">בריזר לימון בקבוק 275מ"ל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">16.9</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">5010677551397</td><td class="px-2 py-1">בריזר למון ליים 275מ"ל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">16.9</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">5010677552387</td><td class="px-2 py-1">בריזר ט.אננס בקבוק 275מל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">16.9</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">5010677554398</td><td class="px-2 py-1">בריזר אבטיח בקבוק 275מ"ל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">16.9</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">5902198160403</td><td class="px-2 py-1">משקה אנרגיה XL TEN</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">5.0</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                  <tr class="hover:bg-indigo-50/40"><td class="px-2 py-1 font-mono text-gray-500">5906485301012</td><td class="px-2 py-1">XL משקה אנרגיה 250מ"ל</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">5.0</td><td class="px-2 py-1 text-left font-bold text-green-700">10.0</td><td class="px-2 py-1 font-mono text-gray-400">202603240300</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center text-gray-300 text-xl select-none">↓</div>
+
+      <!-- ─ 4. Analyzer ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-teal-200 bg-teal-50">
+        <button onclick="toggleGuide('g4')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-teal-100 transition-colors">
+          <span class="text-2xl">📊</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-teal-900 text-base">שלב 3 - Analyzer: ניתוח נתונים</div>
+            <div class="text-xs text-teal-600 mt-0.5">analyzer_agent.run · outliers, price_gaps, KPIs · סינכרוני</div>
+          </div>
+          <span id="g4-arrow" class="text-teal-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g4" class="hidden px-5 pb-5 border-t border-teal-200 bg-white">
+          <div class="pt-4 grid sm:grid-cols-3 gap-4">
+            <div class="bg-teal-50 rounded-xl p-3">
+              <div class="font-bold text-teal-800 text-xs mb-2">📍 Outliers (חריגות)</div>
+              <p class="text-xs text-gray-600 leading-relaxed">מוצר שמחיר המדף שלו חורג ב-<strong>±20% מהחציון</strong> בין הפורמטים. מזהה פערי מחיר חריגים בין שופרסל שלי, דיל, אקספרס.</p>
+            </div>
+            <div class="bg-teal-50 rounded-xl p-3">
+              <div class="font-bold text-teal-800 text-xs mb-2">📐 Price Gaps (פערים)</div>
+              <p class="text-xs text-gray-600 leading-relaxed">עבור כל ברקוד: min_format, max_format, gap_ils, gap_pct. ממוין מגבוה לנמוך. קו-גבול: פער &gt;₪2 ו-&gt;10%.</p>
+            </div>
+            <div class="bg-teal-50 rounded-xl p-3">
+              <div class="font-bold text-teal-800 text-xs mb-2">📈 KPIs (ריצה אחרונה)</div>
+              <div class="text-xs space-y-1.5">
+                <div class="flex justify-between bg-white rounded px-2 py-1"><span>סה"כ מוצרים</span><span class="font-mono font-bold">212</span></div>
+                <div class="flex justify-between bg-white rounded px-2 py-1"><span>מוצרים עם מבצע</span><span class="font-mono font-bold text-green-700">205</span></div>
+                <div class="flex justify-between bg-white rounded px-2 py-1"><span>מוצרים ללא מבצע</span><span class="font-mono font-bold text-red-600">7</span></div>
+                <div class="flex justify-between bg-white rounded px-2 py-1"><span>שיעור מבצעים</span><span class="font-mono font-bold">96.7%</span></div>
+                <div class="flex justify-between bg-white rounded px-2 py-1"><span>פורמטים פעילים</span><span class="font-mono font-bold">7</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Real Outliers table -->
+          <div class="mt-5">
+            <div class="font-semibold text-gray-700 text-xs mb-2">📋 דוגמה: Outliers — חריגות מחיר (±20% מהממוצע)</div>
+            <div class="overflow-x-auto rounded-xl border border-teal-100">
+              <table class="w-full text-xs border-collapse whitespace-nowrap">
+                <thead class="bg-teal-50 text-teal-800">
+                  <tr>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-teal-100">ברקוד</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-teal-100">שם מוצר</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-teal-100">פורמט</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">מחיר ₪</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">ממוצע ₪</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">סטייה %</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-teal-50">
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">5011007003005</td><td class="px-2 py-1">וויסקי ג'יימסון</td><td class="px-2 py-1">שערי רווחה</td><td class="px-2 py-1 text-left font-bold">89.9</td><td class="px-2 py-1 text-left text-gray-500">116.9</td><td class="px-2 py-1 text-left font-bold text-green-700">-23.1%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464796</td><td class="px-2 py-1">בירה הייניקן בק330*6מ"ל</td><td class="px-2 py-1">שופרסל אקספרס</td><td class="px-2 py-1 text-left font-bold">49.9</td><td class="px-2 py-1 text-left text-gray-500">41.3</td><td class="px-2 py-1 text-left font-bold text-red-600">+20.7%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464130</td><td class="px-2 py-1">גולדסטאר לא מסוננת 6*330מ</td><td class="px-2 py-1">שופרסל אקספרס</td><td class="px-2 py-1 text-left font-bold">47.9</td><td class="px-2 py-1 text-left text-gray-500">39.4</td><td class="px-2 py-1 text-left font-bold text-red-600">+21.6%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464741</td><td class="px-2 py-1">בירה גולדסטאר בק330*6מ"ל</td><td class="px-2 py-1">יש חסד</td><td class="px-2 py-1 text-left font-bold">29.9</td><td class="px-2 py-1 text-left text-gray-500">37.7</td><td class="px-2 py-1 text-left font-bold text-green-700">-20.8%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290019153504</td><td class="px-2 py-1">סודה מי עדן 6יח 1.5 ליטר</td><td class="px-2 py-1">שופרסל שלי</td><td class="px-2 py-1 text-left font-bold">9.9</td><td class="px-2 py-1 text-left text-gray-500">14.8</td><td class="px-2 py-1 text-left font-bold text-green-700">-32.9%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290019153504</td><td class="px-2 py-1">סודה מי עדן 6יח 1.5 ליטר</td><td class="px-2 py-1">יש חסד</td><td class="px-2 py-1 text-left font-bold">9.9</td><td class="px-2 py-1 text-left text-gray-500">14.8</td><td class="px-2 py-1 text-left font-bold text-green-700">-32.9%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290019153504</td><td class="px-2 py-1">סודה מי עדן 6יח 1.5 ליטר</td><td class="px-2 py-1">שופרסל אקספרס</td><td class="px-2 py-1 text-left font-bold">18.9</td><td class="px-2 py-1 text-left text-gray-500">14.8</td><td class="px-2 py-1 text-left font-bold text-red-600">+28.1%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290019153504</td><td class="px-2 py-1">סודה מי עדן 6יח 1.5 ליטר</td><td class="px-2 py-1">שופרסל דיל</td><td class="px-2 py-1 text-left font-bold">17.9</td><td class="px-2 py-1 text-left text-gray-500">14.8</td><td class="px-2 py-1 text-left font-bold text-red-600">+21.3%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290019153504</td><td class="px-2 py-1">סודה מי עדן 6יח 1.5 ליטר</td><td class="px-2 py-1">יוניברס</td><td class="px-2 py-1 text-left font-bold">17.9</td><td class="px-2 py-1 text-left text-gray-500">14.8</td><td class="px-2 py-1 text-left font-bold text-red-600">+21.3%</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290000136264</td><td class="px-2 py-1">מי טוניק 1.5 ליטר</td><td class="px-2 py-1">שערי רווחה</td><td class="px-2 py-1 text-left font-bold">7.9</td><td class="px-2 py-1 text-left text-gray-500">10.7</td><td class="px-2 py-1 text-left font-bold text-green-700">-26.2%</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Real Price Gaps table -->
+          <div class="mt-4">
+            <div class="font-semibold text-gray-700 text-xs mb-2">📋 דוגמה: Price Gaps — פערי מחיר בין פורמטים (ממוין לפי גודל פער)</div>
+            <div class="overflow-x-auto rounded-xl border border-teal-100">
+              <table class="w-full text-xs border-collapse whitespace-nowrap">
+                <thead class="bg-teal-50 text-teal-800">
+                  <tr>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-teal-100">ברקוד</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-teal-100">שם מוצר</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">מחיר מינ' ₪</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">מחיר מקס' ₪</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">פער ₪</th>
+                    <th class="px-2 py-1.5 text-left font-semibold border-b border-teal-100">פער %</th>
+                    <th class="px-2 py-1.5 text-center font-semibold border-b border-teal-100">פורמטים</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-teal-50">
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">5011007003005</td><td class="px-2 py-1">וויסקי ג'יימסון</td><td class="px-2 py-1 text-left">89.9</td><td class="px-2 py-1 text-left">129.9</td><td class="px-2 py-1 text-left font-bold text-red-600">40.0</td><td class="px-2 py-1 text-left font-bold text-red-600">44.5%</td><td class="px-2 py-1 text-center">5</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7312040017683</td><td class="px-2 py-1">וודקה אבסולוט</td><td class="px-2 py-1 text-left">64.9</td><td class="px-2 py-1 text-left">84.9</td><td class="px-2 py-1 text-left font-bold text-red-600">20.0</td><td class="px-2 py-1 text-left font-bold text-red-600">30.8%</td><td class="px-2 py-1 text-center">7</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290000023083</td><td class="px-2 py-1">ערק אשקלון 700מ"ל</td><td class="px-2 py-1 text-left">49.9</td><td class="px-2 py-1 text-left">64.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">15.0</td><td class="px-2 py-1 text-left font-bold text-orange-600">30.1%</td><td class="px-2 py-1 text-center">7</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464741</td><td class="px-2 py-1">בירה גולדסטאר בק330*6מ"ל</td><td class="px-2 py-1 text-left">29.9</td><td class="px-2 py-1 text-left">44.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">15.0</td><td class="px-2 py-1 text-left font-bold text-red-600">50.2%</td><td class="px-2 py-1 text-center">6</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464796</td><td class="px-2 py-1">בירה הייניקן בק330*6מ"ל</td><td class="px-2 py-1 text-left">34.9</td><td class="px-2 py-1 text-left">49.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">15.0</td><td class="px-2 py-1 text-left font-bold text-red-600">43.0%</td><td class="px-2 py-1 text-center">7</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464130</td><td class="px-2 py-1">גולדסטאר לא מסוננת 6*330מ</td><td class="px-2 py-1 text-left">34.9</td><td class="px-2 py-1 text-left">47.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">13.0</td><td class="px-2 py-1 text-left font-bold text-red-600">37.2%</td><td class="px-2 py-1 text-center">6</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290008464697</td><td class="px-2 py-1">בירה מכבי 6 יח</td><td class="px-2 py-1 text-left">29.9</td><td class="px-2 py-1 text-left">41.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">12.0</td><td class="px-2 py-1 text-left font-bold text-red-600">40.1%</td><td class="px-2 py-1 text-center">6</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290000135465</td><td class="px-2 py-1">סודה טמפו 12*500מ"ל</td><td class="px-2 py-1 text-left">24.9</td><td class="px-2 py-1 text-left">35.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">11.0</td><td class="px-2 py-1 text-left font-bold text-red-600">44.2%</td><td class="px-2 py-1 text-center">7</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290010237784</td><td class="px-2 py-1">מכבי שנדי ליים 330*6מ"ל</td><td class="px-2 py-1 text-left">28.9</td><td class="px-2 py-1 text-left">39.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">11.0</td><td class="px-2 py-1 text-left font-bold text-red-600">38.1%</td><td class="px-2 py-1 text-center">6</td></tr>
+                  <tr class="hover:bg-teal-50/40"><td class="px-2 py-1 font-mono text-gray-500">7290011133375</td><td class="px-2 py-1">מכבי שנדי אפרסק 6*330מ"ל</td><td class="px-2 py-1 text-left">28.9</td><td class="px-2 py-1 text-left">39.9</td><td class="px-2 py-1 text-left font-bold text-orange-600">11.0</td><td class="px-2 py-1 text-left font-bold text-red-600">38.1%</td><td class="px-2 py-1 text-center">6</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center text-gray-300 text-xl select-none">↓</div>
+
+      <!-- ─ 5. Alert Agent ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-red-200 bg-red-50">
+        <button onclick="toggleGuide('g5')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-red-100 transition-colors">
+          <span class="text-2xl">🚨</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-red-900 text-base">שלב 4 - Alert Agent: סיווג התראות</div>
+            <div class="text-xs text-red-600 mt-0.5">alert_agent._static_fallback · חוקי סיווג סטטיים · severity red/yellow/green</div>
+          </div>
+          <span id="g5-arrow" class="text-red-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g5" class="hidden px-5 pb-5 border-t border-red-200 bg-white">
+          <div class="pt-4 grid sm:grid-cols-2 gap-5">
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">🏷️ סוגי התראות</h3>
+              <div class="space-y-2 text-xs">
+                <div class="flex gap-2 items-start bg-red-50 rounded-xl p-2.5">
+                  <span class="w-3 h-3 rounded-full bg-red-500 mt-0.5 flex-shrink-0"></span>
+                  <div><strong>high_gap (אדום)</strong> - פער מחיר &gt;₪3 בין פורמטים. דורש בדיקה מיידית של תמחור.</div>
+                </div>
+                <div class="flex gap-2 items-start bg-yellow-50 rounded-xl p-2.5">
+                  <span class="w-3 h-3 rounded-full bg-yellow-500 mt-0.5 flex-shrink-0"></span>
+                  <div><strong>no_promo (צהוב)</strong> - מוצר ללא מבצע בשום פורמט. שקול אקטיבציה.</div>
+                </div>
+                <div class="flex gap-2 items-start bg-orange-50 rounded-xl p-2.5">
+                  <span class="w-3 h-3 rounded-full bg-orange-500 mt-0.5 flex-shrink-0"></span>
+                  <div><strong>single_format (כתום)</strong> - מוצר בפורמט אחד בלבד. ייתכן כיסוי חסר.</div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h3 class="font-semibold text-gray-800 mb-2 text-sm">⚡ urgency_score</h3>
+              <p class="text-xs text-gray-600 leading-relaxed mb-2">כל התראה מקבלת ציון 1-10. גורמים: גודל הפער, מספר הפורמטים המושפעים, אחוז הנחה מינימלי.</p>
+              <div class="bg-gray-50 rounded-xl p-2.5 text-xs text-gray-700">
+                <strong>שמירה:</strong> כל ריצה מוחקת התראות פתוחות ויוצרת חדשות. התראות שסומנו "טופל" נשמרות לנצח.
+              </div>
+              <div class="mt-2 text-xs text-blue-600 underline cursor-pointer" onclick="showTab('summary')">← לצפייה בהתראות פעילות</div>
+            </div>
+          </div>
+
+          <!-- Real Alerts table -->
+          <div class="mt-5">
+            <div class="font-semibold text-gray-700 text-xs mb-2">📋 דוגמה: 10 התראות בעדיפות גבוהה (urgency_score מקסימלי)</div>
+            <div class="overflow-x-auto rounded-xl border border-red-100">
+              <table class="w-full text-xs border-collapse whitespace-nowrap">
+                <thead class="bg-red-50 text-red-800">
+                  <tr>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-red-100">סוג</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-red-100">ברקוד</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-red-100">מוצר</th>
+                    <th class="px-2 py-1.5 text-center font-semibold border-b border-red-100">חומרה</th>
+                    <th class="px-2 py-1.5 text-center font-semibold border-b border-red-100">ציון</th>
+                    <th class="px-2 py-1.5 text-right font-semibold border-b border-red-100">בעיה</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-red-50">
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">5011007003005</td><td class="px-2 py-1">וויסקי ג'יימסון</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 88.9% — שופרסל דיל: 10₪ לעומת שערי רווחה: 89.9₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7312040017683</td><td class="px-2 py-1">וודקה אבסולוט</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 88.2% — שופרסל דיל: 10₪ לעומת גוד מרקט: 84.9₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290019220909</td><td class="px-2 py-1">יין סבן הילס קברנה 750מ"ל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 83.3% — שופרסל דיל: 10₪ לעומת יש חסד: 59.9₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290019220893</td><td class="px-2 py-1">סבן הילס שרדונה 750מ"ל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 83.3% — שופרסל אקספרס: 10₪ לעומת יש חסד: 59.9₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290000023083</td><td class="px-2 py-1">ערק אשקלון 700מ"ל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 81.1% — שופרסל דיל: 10₪ לעומת גוד מרקט: 52.9₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290019220473</td><td class="px-2 py-1">רוזה יבש ברקן 750מל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 80.0% — שופרסל דיל: 10₪ לעומת יש חסד: 49.9₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290017589633</td><td class="px-2 py-1">קברנה רזרב גולד 750מ"ל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 76.2% — שופרסל אקספרס: 10₪ לעומת שופרסל שלי: 42₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290018165027</td><td class="px-2 py-1">רוזה רזרב גולד 750מ"ל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 76.2% — יוניברס: 10₪ לעומת שופרסל שלי: 42₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290018165447</td><td class="px-2 py-1">מרלו רזרב גולד 750מ"ל</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 76.2% — שופרסל אקספרס: 10₪ לעומת שופרסל שלי: 42₪</td></tr>
+                  <tr class="hover:bg-red-50/40"><td class="px-2 py-1 font-mono text-red-600">high_gap</td><td class="px-2 py-1 font-mono text-gray-500">7290018165010</td><td class="px-2 py-1">גוורצטרמינר רזרב גולד 750</td><td class="px-2 py-1 text-center"><span class="bg-red-100 text-red-700 rounded px-1">red</span></td><td class="px-2 py-1 text-center font-bold">10</td><td class="px-2 py-1 text-gray-600">פער 76.2% — שופרסל אקספרס: 10₪ לעומת שופרסל שלי: 42₪</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center text-gray-300 text-xl select-none">↓</div>
+
+      <!-- ─ 6. Persist + Schedule ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-gray-200 bg-gray-50">
+        <button onclick="toggleGuide('g6')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-gray-100 transition-colors">
+          <span class="text-2xl">💾</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-gray-900 text-base">שלב 5 - שמירה, לוח זמנים ו-Catch-up</div>
+            <div class="text-xs text-gray-500 mt-0.5">SQLite · APScheduler · 08:00 / 15:00 / 22:00 · Catch-up אוטומטי</div>
+          </div>
+          <span id="g6-arrow" class="text-gray-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g6" class="hidden px-5 pb-5 border-t border-gray-200 bg-white">
+          <div class="pt-4 grid sm:grid-cols-3 gap-4">
+            <div class="bg-gray-50 rounded-xl p-3">
+              <div class="font-bold text-gray-800 text-xs mb-2">🗄️ מסד הנתונים (טבלאות גולמיות)</div>
+              <div class="text-xs text-gray-600 space-y-1">
+                <div><code class="bg-blue-100 px-1 rounded">price_full</code> - מחירי מדף גולמיים · 30 יום · UNIQUE(item_code, format_name, source_ts)</div>
+                <div><code class="bg-green-100 px-1 rounded">promo_full</code> - מבצעים גולמיים · 30 יום · UNIQUE(promotion_id, item_code, format_name, source_ts)</div>
+                <div><code class="bg-purple-100 px-1 rounded">stores</code> - סניפים · UNIQUE(store_id, chain_id)</div>
+                <div><code class="bg-gray-100 px-1 rounded">v_current_prices</code> - VIEW: מחירים עדכניים (MAX source_ts לכל ברקוד+פורמט)</div>
+                <div><code class="bg-gray-100 px-1 rounded">v_current_promos</code> - VIEW: מבצעים עדכניים (MAX source_ts)</div>
+                <div><code class="bg-gray-100 px-1 rounded">alerts</code> - התראות פתוחות + מטופלות</div>
+                <div><code class="bg-gray-100 px-1 rounded">barcodes</code> - ברקודים מנוהלים</div>
+                <div><code class="bg-gray-100 px-1 rounded">pipeline_runs</code> - לוג ריצות</div>
+                <div><code class="bg-gray-100 px-1 rounded">system_status</code> - הגדרות מפתח-ערך</div>
+              </div>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3">
+              <div class="font-bold text-gray-800 text-xs mb-2">⏰ לוח זמנים (ישראל)</div>
+              <div class="text-xs text-gray-600 space-y-1.5">
+                <div class="flex justify-between"><span>🌅 08:00</span><span class="text-gray-500">בוקר - PromoFull עודכן</span></div>
+                <div class="flex justify-between"><span>🌞 15:00</span><span class="text-gray-500">צהריים - עדכון ביניים</span></div>
+                <div class="flex justify-between"><span>🌙 22:00</span><span class="text-gray-500">ערב - PromoFull יומי</span></div>
+                <div class="flex justify-between"><span>🚀 הפעלה</span><span class="text-gray-500">Catch-up אם נתונים &gt;20 שע'</span></div>
+              </div>
+            </div>
+            <div class="bg-gray-50 rounded-xl p-3">
+              <div class="font-bold text-gray-800 text-xs mb-2">🔄 Catch-up Logic</div>
+              <p class="text-xs text-gray-600 leading-relaxed">אם בהפעלת השרת הנתונים ישנים ביותר מ-20 שעות - מופעלת ריצת pipeline אוטומטית מיידית. שופרסל שומרת ~2 חודשי היסטוריה, כך שגם אחרי סוף שבוע הנתונים ישלמו.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Double arrow to dashboard -->
+      <div class="flex flex-col items-center gap-1 py-2 select-none">
+        <div class="text-gray-300 text-xl">↓</div>
+        <div class="text-xs text-gray-400 font-medium">גיליונות הדשבורד</div>
+        <div class="text-gray-300 text-xl">↓</div>
+      </div>
+
+      <!-- ─ 7. Dashboard Tabs ─ -->
+      <div class="guide-block rounded-2xl overflow-hidden border border-violet-200 bg-violet-50">
+        <button onclick="toggleGuide('g7')"
+                class="w-full flex items-center gap-3 px-5 py-4 text-right hover:bg-violet-100 transition-colors">
+          <span class="text-2xl">📋</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-violet-900 text-base">גיליונות הדשבורד - מה כל גיליון מציג</div>
+            <div class="text-xs text-violet-600 mt-0.5">6 גיליונות ניתוח + גיליון ניהול</div>
+          </div>
+          <span id="g7-arrow" class="text-violet-400 text-lg transition-transform">▼</span>
+        </button>
+        <div id="g7" class="hidden px-5 pb-5 border-t border-violet-200 bg-white">
+          <div class="pt-4 grid sm:grid-cols-2 gap-3">
+
+            <div class="border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">🔴 התראות</div>
+                <button onclick="showTab('summary')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <p class="text-xs text-gray-600">תור פעולות ממוין לפי urgency_score. שלושה סוגים: פערי מחיר, ללא מבצע, כיסוי חסר. כל התראה כוללת המלצת פעולה. סמן "טופל" לאחר טיפול.</p>
+            </div>
+
+            <div class="border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">🗺️ מפת כיסוי</div>
+                <button onclick="showTab('presence')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <p class="text-xs text-gray-600">מטריצה: ברקוד × פורמט. מציגה מחיר מדף ומחיר מבצע בכל תא. מאפשרת לזהות היכן מוצר חסר לחלוטין ברשת מסוימת.</p>
+            </div>
+
+            <div class="border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">📐 פערי תמחור</div>
+                <button onclick="showTab('gaps')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <p class="text-xs text-gray-600">רשימת מוצרים עם הפרש גבוה בין מחיר מדף בפורמטים שונים. ממוין מהפרש גבוה לנמוך. גם עבור מחירי מבצע. כלי לזיהוי בעיות תמחור בין-פורמטיות.</p>
+            </div>
+
+            <div class="border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">📈 מגמות מחיר</div>
+                <button onclick="showTab('history')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <p class="text-xs text-gray-600">גרף 30 יום לברקוד נבחר. min/max/avg לכל פורמט. מציג מחיר מבצע בנפרד. טולטיפ עם פרטים לכל יום. נתוני ארכיון מ-price_full ו-promo_full (30 יום גלגולי).</p>
+            </div>
+
+            <div class="border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">📡 כיסוי נתונים</div>
+                <button onclick="showTab('data-quality')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <p class="text-xs text-gray-600">רעננות נתונים לפי פורמט: תאריך עדכון, כמה סניפים הגיעו, כמה ברקודים נמצאו מתוך הרשימה הפעילה. מציג ברקודים חסרים לחלוטין.</p>
+            </div>
+
+            <div class="border border-gray-200 rounded-xl p-3 hover:border-violet-300 transition-colors">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">📒 יומן מערכת</div>
+                <button onclick="showTab('audit')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <p class="text-xs text-gray-600">היסטוריית ריצות pipeline. לכל ריצה: סטטוס, מספר מוצרים/התראות, קבצים שנכשלו, משך זמן. לוח שנה 10 ימים לכל פורמט.</p>
+            </div>
+
+            <div class="border-2 border-tempo/30 rounded-xl p-3 hover:border-tempo/60 transition-colors sm:col-span-2">
+              <div class="flex items-center justify-between mb-1.5">
+                <div class="font-bold text-gray-800 text-sm">⚙️ ניהול - נקודת השליטה הראשית</div>
+                <button onclick="showTab('manage')" class="text-xs text-violet-600 underline hover:text-violet-800">עבור לגיליון</button>
+              </div>
+              <div class="grid sm:grid-cols-2 gap-3 text-xs text-gray-600">
+                <div><strong>פורמטים:</strong> הפעלה/כיבוי פורמטים. פורמט מכובה לא יופיע בשום גיליון ניתוח.</div>
+                <div><strong>ברקודים:</strong> הוספה ידנית / טעינת Excel (עמודה A בלבד). שמות ממולאים אוטומטית. מחיקת ברקוד תסיר אותו מהניתוח בריצה הבאה.</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /guideAccordions -->
+
+    <!-- Quick Actions Bar -->
+    <div class="mt-8 bg-gray-50 rounded-2xl p-4 border border-gray-200">
+      <div class="text-sm font-semibold text-gray-700 mb-3">⚡ פעולות מהירות למשתמש העסקי</div>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        <button onclick="showTab('manage')"
+                class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 hover:border-tempo hover:text-tempo transition-colors text-right">
+          <span>📋</span><span>עדכן רשימת ברקודים</span>
+        </button>
+        <button onclick="showTab('manage')"
+                class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 hover:border-tempo hover:text-tempo transition-colors text-right">
+          <span>🔀</span><span>הפעל/כבה פורמט</span>
+        </button>
+        <button onclick="showTab('data-quality')"
+                class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 hover:border-tempo hover:text-tempo transition-colors text-right">
+          <span>📡</span><span>בדוק רעננות נתונים</span>
+        </button>
+        <button onclick="showTab('audit')"
+                class="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 hover:border-tempo hover:text-tempo transition-colors text-right">
+          <span>🔍</span><span>בדוק לוג ריצות</span>
+        </button>
+      </div>
+    </div>
+
+  </div><!-- /tab-guide -->
+
+  </main>
+</div>
+
+<!-- ═══════════════ ACTION MODAL ═══════════════ -->
+<div id="actionModal" class="fixed inset-0 z-50 hidden modal-overlay bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between mb-4">
+      <h3 class="text-lg font-bold text-gray-900">📋 המלצת פעולה</h3>
+      <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+    </div>
+    <div id="modalProduct" class="text-base font-semibold text-gray-800 mb-2"></div>
+    <div id="modalIssue" class="text-sm text-gray-600 mb-4 bg-red-50 p-3 rounded-lg"></div>
+    <div class="mb-4">
+      <div class="text-sm font-medium text-gray-700 mb-2">שלבי פעולה:</div>
+      <div id="modalSteps" class="space-y-2 text-sm text-gray-700"></div>
+    </div>
+    <div class="flex gap-2 mt-4">
+      <button id="resolveBtn" onclick="resolveAlert()" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium hover:bg-green-700 text-sm">✓ סמן כטופל</button>
+      <button onclick="closeModal()" class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-50 text-sm">✕ סגור</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════ TAB BOTTOM SHEET ═══════════════ -->
+<div id="tabSheet" class="sm:hidden fixed inset-0 z-50 hidden" aria-hidden="true">
+  <!-- Backdrop -->
+  <div onclick="closeTabSheet()" class="absolute inset-0 bg-black/40"></div>
+  <!-- Panel -->
+  <div id="tabSheetPanel"
+       class="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl
+              transform translate-y-full transition-transform duration-300 ease-out"
+       role="menu">
+    <div class="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1"></div>
+    <div class="px-4 pt-2 pb-8 space-y-1">
+      <button onclick="showTab('summary'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="summary">התראות</button>
+      <button onclick="showTab('presence'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="presence">מפת כיסוי</button>
+      <button onclick="showTab('gaps'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="gaps">פערי תמחור</button>
+      <button onclick="showTab('history'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="history">מגמות מחיר</button>
+      <button onclick="showTab('data-quality'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="data-quality">כיסוי נתונים</button>
+      <button onclick="showTab('audit'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="audit">יומן מערכת</button>
+      <button onclick="showTab('manage'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="manage">ניהול</button>
+      <button onclick="showTab('guide'); closeTabSheet()"
+              class="tab-sheet-btn w-full text-right px-4 py-3.5 rounded-xl text-base font-medium hover:bg-gray-50 transition-colors"
+              data-sheet-tab="guide">מדריך</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Toast -->
+<div id="toastContainer" class="fixed bottom-4 left-4 right-4 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none"></div>
+
+<div id="presenceTooltip"
+  class="hidden fixed z-[200] bg-gray-900 text-white rounded-xl shadow-2xl p-3 text-xs max-w-xs pointer-events-none"
+  style="direction:rtl"></div>
+
+<script src="/js/dashboard.js?v=40"></script>
+</body>
+</html>
