@@ -135,6 +135,22 @@ async def debug_promo_sample():
         await conn.close()
 
 
+@app.delete("/api/debug/promo-sbox")
+async def delete_sbox_promos():
+    """Delete all SBOX / credit-card wallet promos from promo_full."""
+    conn = await db.get_db()
+    try:
+        async with conn.execute("""
+            DELETE FROM promo_full
+            WHERE promotion_description ILIKE '%SBOX%'
+               OR promotion_description ILIKE '%כ.אשראי%'
+        """) as cur:
+            deleted = cur.rowcount if hasattr(cur, 'rowcount') else -1
+        return {"status": "ok", "deleted": deleted}
+    finally:
+        await conn.close()
+
+
 @app.post("/api/refresh")
 async def manual_refresh(force: bool = True):
     global _pipeline_running
@@ -274,6 +290,9 @@ async def get_presence():
                 FROM promo_full
                 WHERE scraped_at > strftime('%s','now') - 86400
                   AND discounted_price IS NOT NULL
+                  AND (promotion_description IS NULL
+                       OR (promotion_description NOT ILIKE '%SBOX%'
+                           AND promotion_description NOT ILIKE '%כ.אשראי%'))
                 GROUP BY item_code, format_name, store_id
             ) latest ON pf.item_code   = latest.item_code
                     AND pf.format_name = latest.format_name
@@ -411,6 +430,9 @@ async def get_price_gaps():
             LEFT JOIN v_current_promos cpr
                    ON cpr.item_code   = cp.item_code
                   AND cpr.format_name = cp.format_name
+                  AND (cpr.promotion_description IS NULL
+                       OR (cpr.promotion_description NOT ILIKE '%SBOX%'
+                           AND cpr.promotion_description NOT ILIKE '%כ.אשראי%'))
             LEFT JOIN barcodes b ON b.barcode = cp.item_code
             GROUP BY cp.item_code, cp.format_name, cp.item_price, cp.item_name, b.name
         """) as cur:
@@ -477,6 +499,9 @@ async def get_promotions():
                   AND cp.format_name = cpr.format_name
             LEFT JOIN barcodes b ON b.barcode = cpr.item_code
             WHERE cpr.discounted_price IS NOT NULL
+              AND (cpr.promotion_description IS NULL
+                   OR (cpr.promotion_description NOT ILIKE '%SBOX%'
+                       AND cpr.promotion_description NOT ILIKE '%כ.אשראי%'))
             GROUP BY cpr.item_code, cpr.format_name, b.name, cp.item_price
         """) as cur:
             rows = await cur.fetchall()
@@ -915,6 +940,9 @@ async def get_history_chart(barcode: str, days: int = 30):
                    MIN(discounted_price / CASE WHEN min_qty > 1 THEN min_qty ELSE 1 END) AS best_promo
             FROM promo_full
             WHERE item_code = ? AND scraped_at > ? AND min_qty IS NOT NULL
+              AND (promotion_description IS NULL
+                   OR (promotion_description NOT ILIKE '%SBOX%'
+                       AND promotion_description NOT ILIKE '%כ.אשראי%'))
             GROUP BY item_code, format_name, DATE(scraped_at,'unixepoch','localtime')
         """
         # Aggregated: one row per (format, day)
@@ -1029,6 +1057,9 @@ async def get_history(barcode: str, days: int = 30):
                    ON pr.item_code   = pf.item_code
                   AND pr.format_name = pf.format_name
                   AND DATE(pr.scraped_at,'unixepoch') = DATE(pf.scraped_at,'unixepoch')
+                  AND (pr.promotion_description IS NULL
+                       OR (pr.promotion_description NOT ILIKE '%SBOX%'
+                           AND pr.promotion_description NOT ILIKE '%כ.אשראי%'))
             WHERE pf.item_code = ? AND pf.scraped_at > ?
             GROUP BY pf.format_name, DATE(pf.scraped_at,'unixepoch')
             ORDER BY MIN(pf.scraped_at)

@@ -25,6 +25,15 @@ from decimal import Decimal
 
 import asyncpg
 
+# ── Filter: exclude Shufersal SBOX credit-card wallet promotions from analysis ──
+# SBOX promos show discounted_price=10 NIS for items priced 50-300 NIS.
+# They represent a credit-card cashback, not a true shelf/channel price gap.
+EXCL_PROMO_SQL = (
+    "(pr.promotion_description IS NULL "
+    " OR (pr.promotion_description NOT ILIKE '%SBOX%' "
+    "     AND pr.promotion_description NOT ILIKE '%כ.אשראי%'))"
+)
+
 # ── Global fix: make Python's json module handle Decimal (from asyncpg NUMERIC) ──
 _orig_json_default = _json.JSONEncoder.default
 
@@ -514,6 +523,9 @@ async def get_records_by_format_ts(pairs: list[tuple[str, str]]) -> list[dict]:
                    SELECT MAX(source_ts) FROM promo_full
                    WHERE item_code = pf.item_code AND format_name = pf.format_name
                )
+               AND (pr.promotion_description IS NULL
+                    OR (pr.promotion_description NOT ILIKE '%SBOX%'
+                        AND pr.promotion_description NOT ILIKE '%כ.אשראי%'))
             WHERE pf.format_name = $1 AND pf.source_ts = $2
             GROUP BY pf.item_code, pf.format_name, pf.item_name,
                      pf.manufacturer_name, pf.item_price, pf.source_url, pf.source_ts
