@@ -64,6 +64,9 @@ app.add_middleware(
 # System status
 # ──────────────────────────────────────────────────────────────────────────────
 
+BUILD_VERSION = "6eaa0c8"  # updated per deploy for version tracking
+
+
 @app.get("/api/status")
 async def get_status():
     last_refresh = await db.get_status("last_refresh_at", "")
@@ -99,6 +102,7 @@ async def get_status():
         "open_alert_count": alert_count,
         "scheduled_jobs": next_jobs,
         "pipeline_running": _pipeline_running,
+        "build_version": BUILD_VERSION,
     }
 
 
