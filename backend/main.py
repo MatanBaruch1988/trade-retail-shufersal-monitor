@@ -180,16 +180,8 @@ async def get_insights():
 @app.get("/api/presence")
 async def get_presence():
     import statistics as _stats
-    import traceback as _tb
-    try:
-     return await _get_presence_impl(_stats)
-    except Exception:
-     return JSONResponse({"debug_error": _tb.format_exc()}, status_code=422)
-
-async def _get_presence_impl(_stats):
     disabled_fmt, active_bc = await _active_filters()
     conn = await db.get_db()
-    _debug_error = None
     try:
         # Per-store latest price for each (barcode, format)
         async with conn.execute("""

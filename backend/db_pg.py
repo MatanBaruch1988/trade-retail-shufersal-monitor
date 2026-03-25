@@ -35,6 +35,7 @@ async def get_pool() -> asyncpg.Pool:
             os.environ["DATABASE_URL"],
             min_size=1,
             max_size=5,
+            statement_cache_size=0,  # Required for Supabase PgBouncer transaction-mode pooling
         )
     return _pool
 
