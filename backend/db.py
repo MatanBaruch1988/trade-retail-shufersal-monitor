@@ -1,9 +1,10 @@
 """SQLite database layer using aiosqlite."""
 import json
+import os
 import time
 import aiosqlite
 
-DB_PATH = "data/prices.db"
+DB_PATH = os.environ.get("DB_PATH", "data/prices.db")
 
 
 async def get_db() -> aiosqlite.Connection:

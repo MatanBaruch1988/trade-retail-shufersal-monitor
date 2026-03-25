@@ -1,7 +1,7 @@
 .env
 API Keys.txt
 .claude/
-data/prices.db
+# data/prices.db  # uncomment to exclude DB from deployment snapshot
 data/*.gz
 data/cache/
 __pycache__/
