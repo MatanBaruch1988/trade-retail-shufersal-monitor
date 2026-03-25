@@ -8,5 +8,11 @@
     { "src": "/api/(.*)", "dest": "/api/index.py" },
     { "src": "/(.*\\.(js|css|png|svg|ico|json))", "dest": "/frontend/$1" },
     { "src": "/(.*)", "dest": "/frontend/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/run-pipeline",
+      "schedule": "0 6,13,20 * * *"
+    }
   ]
 }

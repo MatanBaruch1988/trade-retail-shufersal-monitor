@@ -10,7 +10,7 @@ import aiosqlite
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Body, UploadFile, File
+from fastapi import FastAPI, HTTPException, Body, Header, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -114,6 +114,27 @@ async def manual_refresh(force: bool = True):
     _pipeline_running = True
     try:
         return await run_pipeline(force=force, trigger="manual")
+    finally:
+        _pipeline_running = False
+
+
+@app.post("/api/cron/run-pipeline")
+async def cron_run_pipeline(authorization: str = Header(default="")):
+    """Called by Vercel Cron Jobs at 08:00 / 15:00 / 22:00 Israel time.
+    Vercel passes Authorization: Bearer <CRON_SECRET> automatically.
+    """
+    import os
+    cron_secret = os.environ.get("CRON_SECRET", "")
+    if cron_secret and authorization != f"Bearer {cron_secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    global _pipeline_running
+    if _pipeline_running:
+        return {"status": "already_running"}
+    _pipeline_running = True
+    try:
+        result = await run_pipeline(force=True, trigger="cron")
+        return {"status": "ok", "result": result}
     finally:
         _pipeline_running = False
 
