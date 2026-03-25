@@ -362,7 +362,7 @@ async def get_price_gaps():
                    ON cpr.item_code   = cp.item_code
                   AND cpr.format_name = cp.format_name
             LEFT JOIN barcodes b ON b.barcode = cp.item_code
-            GROUP BY cp.item_code, cp.format_name
+            GROUP BY cp.item_code, cp.format_name, cp.item_price, cp.item_name, b.name
         """) as cur:
             rows = await cur.fetchall()
     finally:
@@ -420,25 +420,25 @@ async def get_promotions():
                 COALESCE(b.name, cpr.item_code) AS name,
                 cpr.format_name,
                 cp.item_price              AS price,
-                MIN(cpr.discounted_price)  AS promo_price,
-                CASE
-                    WHEN cp.item_price > 0 AND MIN(cpr.discounted_price) IS NOT NULL
-                    THEN ROUND((cp.item_price - MIN(cpr.discounted_price))
-                               / cp.item_price * 100, 1)
-                    ELSE NULL
-                END                        AS discount_pct
+                MIN(cpr.discounted_price)  AS promo_price
             FROM v_current_promos cpr
             LEFT JOIN v_current_prices cp
                    ON cp.item_code   = cpr.item_code
                   AND cp.format_name = cpr.format_name
             LEFT JOIN barcodes b ON b.barcode = cpr.item_code
             WHERE cpr.discounted_price IS NOT NULL
-            GROUP BY cpr.item_code, cpr.format_name
-            ORDER BY discount_pct DESC
+            GROUP BY cpr.item_code, cpr.format_name, b.name, cp.item_price
         """) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+            rows = await cur.fetchall()
     finally:
         await conn.close()
+    result = []
+    for r in rows:
+        rd = dict(r)
+        price, promo = rd.get("price"), rd.get("promo_price")
+        rd["discount_pct"] = round((price - promo) / price * 100, 1) if price and promo else None
+        result.append(rd)
+    return sorted(result, key=lambda x: x["discount_pct"] or 0, reverse=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -858,58 +858,60 @@ async def get_history_chart(barcode: str, days: int = 30):
     conn = await db.get_db()
     try:
         # Per-day promo sub-query (best promo per barcode+format+day, exclude credit-card promos)
+        # GROUP BY uses the expression (not alias) for PostgreSQL compatibility
         promo_sub = """
             SELECT item_code, format_name,
                    DATE(scraped_at,'unixepoch','localtime') AS scrape_date,
                    MIN(discounted_price / CASE WHEN min_qty > 1 THEN min_qty ELSE 1 END) AS best_promo
             FROM promo_full
             WHERE item_code = ? AND scraped_at > ? AND min_qty IS NOT NULL
-            GROUP BY item_code, format_name, scrape_date
+            GROUP BY item_code, format_name, DATE(scraped_at,'unixepoch','localtime')
         """
-        # Aggregated: one row per (format, day) — price_full has UNIQUE per source_ts so
-        # MIN=MAX=AVG=the published price for that day's file.
+        # Aggregated: one row per (format, day)
+        # Non-aggregate columns use MIN/MAX/AVG for PostgreSQL GROUP BY compatibility
         async with conn.execute(f"""
             SELECT
                 DATE(pf.scraped_at,'unixepoch','localtime') AS snap_date,
                 pf.format_name,
-                pf.item_price  AS min_price,
-                pf.item_price  AS max_price,
-                pf.item_price  AS avg_price,
-                pr.best_promo  AS promo_min,
-                1              AS branch_count
+                MIN(pf.item_price)  AS min_price,
+                MAX(pf.item_price)  AS max_price,
+                AVG(pf.item_price)  AS avg_price,
+                MIN(pr.best_promo)  AS promo_min,
+                1                   AS branch_count
             FROM price_full pf
             LEFT JOIN ({promo_sub}) pr
                    ON pr.item_code   = pf.item_code
                   AND pr.format_name = pf.format_name
                   AND pr.scrape_date = DATE(pf.scraped_at,'unixepoch','localtime')
             WHERE pf.item_code = ? AND pf.scraped_at > ? AND pf.item_price IS NOT NULL
-            GROUP BY snap_date, pf.format_name
-            ORDER BY pf.format_name, snap_date
+            GROUP BY DATE(pf.scraped_at,'unixepoch','localtime'), pf.format_name
+            ORDER BY pf.format_name, DATE(pf.scraped_at,'unixepoch','localtime')
         """, (barcode, cutoff, barcode, cutoff)) as cur:
             agg_rows = [dict(r) for r in await cur.fetchall()]
 
-        # Daily detail for tooltip
+        # Daily detail for tooltip — discount_pct computed in Python (ROUND(float,n) PostgreSQL compat)
         async with conn.execute(f"""
             SELECT
                 DATE(pf.scraped_at,'unixepoch','localtime') AS snap_date,
                 pf.format_name,
-                pf.item_price  AS price,
-                pr.best_promo  AS promo_price,
-                CASE
-                    WHEN pf.item_price > 0 AND pr.best_promo IS NOT NULL
-                    THEN ROUND((pf.item_price - pr.best_promo) / pf.item_price * 100, 1)
-                    ELSE NULL
-                END AS discount_pct
+                MIN(pf.item_price)  AS price,
+                MIN(pr.best_promo)  AS promo_price
             FROM price_full pf
             LEFT JOIN ({promo_sub}) pr
                    ON pr.item_code   = pf.item_code
                   AND pr.format_name = pf.format_name
                   AND pr.scrape_date = DATE(pf.scraped_at,'unixepoch','localtime')
             WHERE pf.item_code = ? AND pf.scraped_at > ? AND pf.item_price IS NOT NULL
-            GROUP BY snap_date, pf.format_name
-            ORDER BY pf.format_name, snap_date, pf.item_price DESC
+            GROUP BY DATE(pf.scraped_at,'unixepoch','localtime'), pf.format_name
+            ORDER BY pf.format_name, DATE(pf.scraped_at,'unixepoch','localtime')
         """, (barcode, cutoff, barcode, cutoff)) as cur:
-            detail_rows = [dict(r) for r in await cur.fetchall()]
+            raw_detail = [dict(r) for r in await cur.fetchall()]
+        # Compute discount_pct in Python (avoids ROUND(float,n) PostgreSQL incompatibility)
+        detail_rows = []
+        for r in raw_detail:
+            p, pr_p = r.get("price"), r.get("promo_price")
+            r["discount_pct"] = round((p - pr_p) / p * 100, 1) if p and pr_p else None
+            detail_rows.append(r)
 
         async with conn.execute(
             "SELECT name FROM barcodes WHERE barcode=? LIMIT 1", (barcode,)
@@ -969,15 +971,9 @@ async def get_history(barcode: str, days: int = 30):
         async with conn.execute("""
             SELECT
                 pf.format_name,
-                pf.item_price  AS price,
+                MIN(pf.item_price)       AS price,
                 MIN(pr.discounted_price) AS promo_price,
-                CASE
-                    WHEN pf.item_price > 0 AND MIN(pr.discounted_price) IS NOT NULL
-                    THEN ROUND((pf.item_price - MIN(pr.discounted_price))
-                               / pf.item_price * 100, 1)
-                    ELSE NULL
-                END AS discount_pct,
-                pf.scraped_at  AS snapshot_at
+                MIN(pf.scraped_at)       AS snapshot_at
             FROM price_full pf
             LEFT JOIN promo_full pr
                    ON pr.item_code   = pf.item_code
@@ -985,10 +981,16 @@ async def get_history(barcode: str, days: int = 30):
                   AND DATE(pr.scraped_at,'unixepoch') = DATE(pf.scraped_at,'unixepoch')
             WHERE pf.item_code = ? AND pf.scraped_at > ?
             GROUP BY pf.format_name, DATE(pf.scraped_at,'unixepoch')
-            ORDER BY pf.scraped_at
+            ORDER BY MIN(pf.scraped_at)
         """, (barcode, cutoff)) as cur:
-            rows = [dict(r) for r in await cur.fetchall()]
-            return [r for r in rows if r["format_name"] not in disabled_fmt]
+            raw_rows = [dict(r) for r in await cur.fetchall()]
+        # Compute discount_pct in Python (avoids ROUND(float,n) PostgreSQL incompatibility)
+        rows = []
+        for r in raw_rows:
+            p, pr_p = r.get("price"), r.get("promo_price")
+            r["discount_pct"] = round((p - pr_p) / p * 100, 1) if p and pr_p else None
+            rows.append(r)
+        return [r for r in rows if r["format_name"] not in disabled_fmt]
     finally:
         await conn.close()
 
