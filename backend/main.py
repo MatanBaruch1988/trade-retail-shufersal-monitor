@@ -20,34 +20,19 @@ from backend import db
 from backend.agents import parser_agent, scraper_agent
 from backend.agents.orchestrator import run_pipeline
 from backend.constants import FORMAT_KEYWORDS
-from backend.scheduler import create_scheduler
+# APScheduler removed — scheduling handled by Vercel Cron (vercel.json)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
 
-scheduler = create_scheduler()
 _pipeline_running = False
-
-MAX_DATA_AGE_HOURS = 20  # trigger catch-up run if data is older than this
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import asyncio
     await db.init_db()
-    scheduler.start()
-    logger.info("Scheduler started")
-
-    last_refresh = float(await db.get_status("last_refresh_at", "0"))
-    age_hours = (time.time() - last_refresh) / 3600
-    if age_hours > MAX_DATA_AGE_HOURS:
-        logger.info("Data is %.1fh old — triggering catch-up pipeline run on startup", age_hours)
-        asyncio.create_task(run_pipeline(force=True, trigger="catchup"))
-
     yield
-    scheduler.shutdown()
-    logger.info("Scheduler stopped")
 
 
 app = FastAPI(title="Tempo Price Monitor", lifespan=lifespan)
@@ -88,11 +73,6 @@ async def get_status():
     if last_refresh:
         stale = (time.time() - float(last_refresh)) > 86400
 
-    next_jobs = []
-    for job in scheduler.get_jobs():
-        if job.next_run_time:
-            next_jobs.append({"name": job.name, "next_run": job.next_run_time.isoformat()})
-
     return {
         "last_refresh_at": last_refresh,
         "last_shufersal_timestamp": last_ts,
@@ -100,7 +80,7 @@ async def get_status():
         "barcode_count": barcode_count,
         "product_count": product_count,
         "open_alert_count": alert_count,
-        "scheduled_jobs": next_jobs,
+        "next_cron": "21:00 Israel time (Vercel Cron)",
         "pipeline_running": _pipeline_running,
         "build_version": BUILD_VERSION,
     }
