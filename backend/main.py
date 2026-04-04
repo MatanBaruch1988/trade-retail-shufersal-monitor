@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from backend import db
 from backend.agents import parser_agent, scraper_agent
 from backend.agents.orchestrator import run_pipeline
-from backend.constants import FORMAT_KEYWORDS, map_consumer_format
+from backend.constants import FORMAT_KEYWORDS, map_consumer_format, get_format_from_store_name
 # APScheduler removed — scheduling handled by Vercel Cron (vercel.json)
 
 load_dotenv()
@@ -293,10 +293,11 @@ async def get_presence():
         # Skip credit-card / loyalty promos (no min_qty = not a per-unit price deal)
         if not r["min_qty"]:
             continue
-        # Skip cross-chain promos: derive true chain from store_name and compare to promo format
+        # Skip cross-chain promos: detect chain from store name prefix (not substring)
+        # e.g. 'דיל ירושלים' → 'שופרסל דיל' ≠ 'שופרסל שלי' → filter out
         if r["store_name"]:
-            derived_fmt = map_consumer_format(r["store_name"])
-            if derived_fmt in FORMAT_KEYWORDS and derived_fmt != r["format_name"]:
+            derived_fmt = get_format_from_store_name(r["store_name"])
+            if derived_fmt is not None and derived_fmt != r["format_name"]:
                 continue
         key2 = (r["item_code"], r["format_name"])
         key3 = (r["item_code"], r["format_name"], r["store_id"])
