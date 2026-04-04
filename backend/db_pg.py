@@ -504,11 +504,11 @@ async def get_records_by_format_ts(pairs: list[tuple[str, str]]) -> list[dict]:
                 pf.manufacturer_name      AS manufacturer,
                 pf.format_name,
                 pf.item_price             AS price,
-                MIN(pr.discounted_price)  AS promo_price,
+                MIN(pr.discounted_price / CASE WHEN pr.min_qty > 1 THEN pr.min_qty ELSE 1 END) AS promo_price,
                 MIN(pr.promotion_description) AS promo_description,
                 CASE
-                    WHEN pf.item_price > 0 AND MIN(pr.discounted_price) IS NOT NULL
-                    THEN ROUND(CAST((pf.item_price - MIN(pr.discounted_price))
+                    WHEN pf.item_price > 0 AND MIN(pr.discounted_price / CASE WHEN pr.min_qty > 1 THEN pr.min_qty ELSE 1 END) IS NOT NULL
+                    THEN ROUND(CAST((pf.item_price - MIN(pr.discounted_price / CASE WHEN pr.min_qty > 1 THEN pr.min_qty ELSE 1 END))
                                / pf.item_price * 100 AS NUMERIC), 1)
                     ELSE NULL
                 END                       AS discount_pct,

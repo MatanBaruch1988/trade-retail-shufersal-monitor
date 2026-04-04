@@ -74,6 +74,10 @@ def _parse_xml_promos(xml_bytes: bytes, format_name: str, active_barcodes: set, 
             min_qty = 1
         promo_price = round(promo_price_raw / min_qty, 2) if (promo_price_raw and min_qty > 1) else promo_price_raw
 
+        # Skip SBOX credit-card wallet promotions (not a real shelf price)
+        if promo_desc and ('SBOX' in promo_desc or 'כ.אשראי' in promo_desc):
+            continue
+
         for item in promo.iter("Item"):
             barcode = _text(_find(item, "ItemCode", "Barcode"))
             if not barcode or (active_barcodes and barcode not in active_barcodes):

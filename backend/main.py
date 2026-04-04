@@ -118,17 +118,14 @@ async def debug_promo_sample():
 @app.delete("/api/debug/promo-sbox")
 async def delete_sbox_promos():
     """Delete all SBOX / credit-card wallet promos from promo_full."""
-    conn = await db.get_db()
-    try:
-        async with conn.execute("""
-            DELETE FROM promo_full
-            WHERE promotion_description ILIKE '%SBOX%'
-               OR promotion_description ILIKE '%כ.אשראי%'
-        """) as cur:
-            deleted = cur.rowcount if hasattr(cur, 'rowcount') else -1
-        return {"status": "ok", "deleted": deleted}
-    finally:
-        await conn.close()
+    pool = await db.get_pool()
+    result = await pool.execute("""
+        DELETE FROM promo_full
+        WHERE promotion_description ILIKE '%SBOX%'
+           OR promotion_description ILIKE '%כ.אשראי%'
+    """)
+    deleted = int(result.split()[-1]) if result else -1
+    return {"status": "ok", "deleted": deleted}
 
 
 @app.post("/api/refresh")
@@ -1039,7 +1036,7 @@ async def get_history(barcode: str, days: int = 30):
             SELECT
                 pf.format_name,
                 MIN(pf.item_price)       AS price,
-                MIN(pr.discounted_price) AS promo_price,
+                MIN(pr.discounted_price / CASE WHEN pr.min_qty > 1 THEN pr.min_qty ELSE 1 END) AS promo_price,
                 MIN(pf.scraped_at)       AS snapshot_at
             FROM price_full pf
             LEFT JOIN promo_full pr
