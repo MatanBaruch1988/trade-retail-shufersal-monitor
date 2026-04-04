@@ -392,6 +392,38 @@ function filterPresence() {
 }
 
 // ── Price Gaps ────────────────────────────────────────────────
+let _gapsData = { catalog: [], promo: [] };
+const _gapsSort = {
+  catalog: { field: 'gap_ils', dir: -1 },
+  promo:   { field: 'gap_ils', dir: -1 },
+};
+
+function _renderSortedGaps(table) {
+  const { field, dir } = _gapsSort[table];
+  const sorted = [..._gapsData[table]].sort((a, b) => {
+    const av = a[field] ?? '', bv = b[field] ?? '';
+    return typeof av === 'number' ? (av - bv) * dir : String(av).localeCompare(String(bv), 'he') * dir;
+  });
+  const bodyId = table === 'catalog' ? 'gapsBody' : 'gapsBodyPromo';
+  document.getElementById(bodyId).innerHTML = _renderGapRows(sorted);
+  document.querySelectorAll(`th[data-table="${table}"]`).forEach(th => {
+    const icon = th.querySelector('.sort-icon');
+    if (!icon) return;
+    const active = th.dataset.field === field;
+    icon.textContent = active ? (dir === 1 ? '↑' : '↓') : '↕';
+    icon.className = 'sort-icon ' + (active ? 'text-blue-600' : 'text-gray-400');
+  });
+}
+
+document.addEventListener('click', e => {
+  const th = e.target.closest('th[data-table][data-field]');
+  if (!th) return;
+  const table = th.dataset.table, field = th.dataset.field;
+  _gapsSort[table].dir = _gapsSort[table].field === field ? -_gapsSort[table].dir : -1;
+  _gapsSort[table].field = field;
+  _renderSortedGaps(table);
+});
+
 function _renderGapRows(gaps) {
   return gaps.map(g => {
     const cls = g.gap_pct >= 30 ? 'text-red-600 font-bold' : g.gap_pct >= 15 ? 'text-yellow-600 font-semibold' : 'text-gray-700';
@@ -434,14 +466,14 @@ async function loadGaps() {
   try {
     const r = await fetch(API + '/api/price-gaps');
     const d = await r.json();
-
-    document.getElementById('gapsBody').innerHTML = _renderGapRows(d.catalog || []);
-    document.getElementById('gapsBodyPromo').innerHTML = _renderGapRows(d.promo || []);
-
+    _gapsData.catalog = d.catalog || [];
+    _gapsData.promo   = d.promo   || [];
+    _renderSortedGaps('catalog');
+    _renderSortedGaps('promo');
     const catalogCards = document.getElementById('price-gaps-cards');
-    if (catalogCards) catalogCards.innerHTML = _renderGapCards(d.catalog || []);
+    if (catalogCards) catalogCards.innerHTML = _renderGapCards(_gapsData.catalog);
     const promoCards = document.getElementById('price-gaps-cards-promo');
-    if (promoCards) promoCards.innerHTML = _renderGapCards(d.promo || []);
+    if (promoCards) promoCards.innerHTML = _renderGapCards(_gapsData.promo);
   } catch (e) {
     console.error('gaps error', e);
     showToast('שגיאה בטעינת פערי מחירים', 'error');

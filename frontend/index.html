@@ -198,22 +198,24 @@
       <span>🏷️</span> פערי מחיר קטלוגי
     </h2>
     <div id="price-gaps-cards" class="sm:hidden space-y-2 mb-4"></div>
-    <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-      <table class="w-full text-sm">
-        <thead class="bg-blue-50 text-gray-600 text-right">
-          <tr>
-            <th class="px-4 py-3 font-medium">ברקוד</th>
-            <th class="px-4 py-3 font-medium">מוצר</th>
-            <th class="px-4 py-3 font-medium">מחיר נמוך</th>
-            <th class="px-4 py-3 font-medium">פורמט</th>
-            <th class="px-4 py-3 font-medium">מחיר גבוה</th>
-            <th class="px-4 py-3 font-medium">פורמט</th>
-            <th class="px-4 py-3 font-medium">פער ₪</th>
-            <th class="px-4 py-3 font-medium">פער %</th>
-          </tr>
-        </thead>
-        <tbody id="gapsBody" class="divide-y divide-gray-100"></tbody>
-      </table>
+    <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <div class="overflow-y-auto" style="max-height:42vh">
+        <table class="w-full text-sm">
+          <thead class="bg-blue-50 text-gray-600 text-right sticky top-0 z-10">
+            <tr>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-blue-100" data-table="catalog" data-field="barcode">ברקוד <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-blue-100" data-table="catalog" data-field="name">מוצר <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-blue-100" data-table="catalog" data-field="min_price">מחיר נמוך <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium">פורמט</th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-blue-100" data-table="catalog" data-field="max_price">מחיר גבוה <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium">פורמט</th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-blue-100" data-table="catalog" data-field="gap_ils">פער ₪ <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-blue-100" data-table="catalog" data-field="gap_pct">פער % <span class="sort-icon text-gray-400">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="gapsBody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Section 2: Promo price gaps -->
@@ -222,21 +224,23 @@
     </h2>
     <div id="price-gaps-cards-promo" class="sm:hidden space-y-2 mb-4"></div>
     <div class="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-green-50 text-gray-600 text-right">
-          <tr>
-            <th class="px-4 py-3 font-medium">ברקוד</th>
-            <th class="px-4 py-3 font-medium">מוצר</th>
-            <th class="px-4 py-3 font-medium">מחיר נמוך</th>
-            <th class="px-4 py-3 font-medium">פורמט</th>
-            <th class="px-4 py-3 font-medium">מחיר גבוה</th>
-            <th class="px-4 py-3 font-medium">פורמט</th>
-            <th class="px-4 py-3 font-medium">פער ₪</th>
-            <th class="px-4 py-3 font-medium">פער %</th>
-          </tr>
-        </thead>
-        <tbody id="gapsBodyPromo" class="divide-y divide-gray-100"></tbody>
-      </table>
+      <div class="overflow-y-auto" style="max-height:42vh">
+        <table class="w-full text-sm">
+          <thead class="bg-green-50 text-gray-600 text-right sticky top-0 z-10">
+            <tr>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-green-100" data-table="promo" data-field="barcode">ברקוד <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-green-100" data-table="promo" data-field="name">מוצר <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-green-100" data-table="promo" data-field="min_price">מחיר נמוך <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium">פורמט</th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-green-100" data-table="promo" data-field="max_price">מחיר גבוה <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium">פורמט</th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-green-100" data-table="promo" data-field="gap_ils">פער ₪ <span class="sort-icon text-gray-400">↕</span></th>
+              <th class="px-4 py-3 font-medium cursor-pointer select-none hover:bg-green-100" data-table="promo" data-field="gap_pct">פער % <span class="sort-icon text-gray-400">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="gapsBodyPromo" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
