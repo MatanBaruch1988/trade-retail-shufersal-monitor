@@ -341,6 +341,12 @@ async def get_presence():
         bc, fmt = r["item_code"], r["format_name"]
         if bc not in active_bc or fmt in disabled_fmt:
             continue
+        # Skip cross-chain catalog stores (same logic as promo filter)
+        store_nm = r["store_name"]
+        if store_nm:
+            derived_fmt = get_format_from_store_name(store_nm)
+            if derived_fmt is not None and derived_fmt != fmt:
+                continue
         names[bc] = r["name"]
         buckets[(bc, fmt)].append({
             "store_id":   r["store_id"],
@@ -363,10 +369,17 @@ async def get_presence():
         median = round(_stats.median(prices), 2) if prices else None
 
         # Promo statistics (separate from catalog)
-        p_stores = sorted(promo_buckets.get((bc, fmt), []), key=lambda s: (s["price"] or 0), reverse=True)
-        p_prices = [s["price"] for s in p_stores if s["price"] is not None]
-        # All distinct promos sorted by unit price
-        p_list = sorted(promo_all_types.get((bc, fmt), []), key=lambda p: p["unit_price"])
+        catalog_min = min(prices)
+        p_stores = sorted(
+            [s for s in promo_buckets.get((bc, fmt), []) if s["price"] is not None and s["price"] < catalog_min],
+            key=lambda s: (s["price"] or 0), reverse=True,
+        )
+        p_prices = [s["price"] for s in p_stores]
+        # All distinct promos sorted by unit price — only those cheaper than catalog
+        p_list = sorted(
+            [p for p in promo_all_types.get((bc, fmt), []) if p["unit_price"] < catalog_min],
+            key=lambda p: p["unit_price"],
+        )
         promo_stats: dict = {}
         if p_prices:
             pn = len(p_prices)
