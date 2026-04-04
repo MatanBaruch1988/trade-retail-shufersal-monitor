@@ -96,10 +96,11 @@ async function loadActionQueue() {
 }
 
 function renderAlertCard(a) {
-  return `<div class="severity-${a.severity} rounded-xl px-4 py-3 flex items-center justify-between gap-3 cursor-pointer hover:opacity-90 transition-opacity"
-       onclick="openModal(${a.id}, '${esc(a.product_name)}', '${esc(a.issue)}', '${esc(a.recommended_action)}', '${a.severity}')">
+  const scls = alertSeverityCls(a);
+  return `<div class="severity-${scls} rounded-xl px-4 py-3 flex items-center justify-between gap-3 cursor-pointer hover:opacity-90 transition-opacity"
+       onclick="openModal(${a.id}, '${esc(a.product_name)}', '${esc(a.issue)}', '${esc(a.recommended_action)}', '${scls}')">
     <div class="flex items-center gap-3 min-w-0">
-      <span class="text-lg flex-shrink-0">${severityIcon(a.severity)}</span>
+      <span class="text-lg flex-shrink-0">${severityIcon(scls)}</span>
       <div class="min-w-0">
         <div class="font-semibold text-sm truncate">${esc(a.product_name)}</div>
         <div class="text-xs opacity-80 truncate">${esc(a.issue)}</div>
@@ -132,8 +133,14 @@ function closeDrillDown() {
   document.getElementById('drillDownPanel').classList.add('hidden');
 }
 
+const _alertTypeSeverity = { single_format: 'orange', promo_mismatch: 'blue' };
+
+function alertSeverityCls(a) {
+  return _alertTypeSeverity[a.alert_type] || a.severity;
+}
+
 function severityIcon(s) {
-  return s === 'red' ? '🔴' : s === 'yellow' ? '🟡' : s === 'blue' ? '🔵' : '🟢';
+  return s === 'red' ? '🔴' : s === 'yellow' ? '🟡' : s === 'blue' ? '🔵' : s === 'orange' ? '🟠' : '🟢';
 }
 
 // ── Modal ─────────────────────────────────────────────────────
