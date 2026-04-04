@@ -36,4 +36,8 @@ def get_format_from_store_name(store_name: str) -> str | None:
         for kw in keywords:
             if normalized.startswith(kw + ' ') or normalized == kw:
                 return fmt
+    # Catch generic "יש" stores whose names don't start with the full sub-brand
+    # (e.g. "יש בני ברק- ירושלים" — clearly not a שופרסל store)
+    if normalized.startswith("יש "):
+        return "יש חסד"
     return None
