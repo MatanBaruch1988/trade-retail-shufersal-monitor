@@ -20,7 +20,7 @@ logging.basicConfig(
 
 async def main() -> None:
     from backend.agents.orchestrator import run_pipeline
-    result = await run_pipeline(force=False, trigger="github-actions")
+    result = await run_pipeline(force=True, trigger="github-actions")
     logging.info("Pipeline finished: %s", result)
     if result.get("status") == "failed":
         sys.exit(1)
