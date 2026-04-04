@@ -260,7 +260,8 @@ async def get_presence():
                 pf.promotion_description,
                 pf.start_date, pf.end_date,
                 COALESCE(s.store_name, '') AS store_name,
-                COALESCE(s.city, '')       AS city
+                COALESCE(s.city, '')       AS city,
+                s.format_name              AS store_true_format
             FROM promo_full pf
             JOIN (
                 SELECT item_code, format_name, store_id, MAX(source_ts) AS max_ts
@@ -291,6 +292,9 @@ async def get_presence():
     for r in promo_rows:
         # Skip credit-card / loyalty promos (no min_qty = not a per-unit price deal)
         if not r["min_qty"]:
+            continue
+        # Skip cross-chain promos: store's actual chain differs from promo file's format
+        if r["store_true_format"] and r["store_true_format"] != r["format_name"]:
             continue
         key2 = (r["item_code"], r["format_name"])
         key3 = (r["item_code"], r["format_name"], r["store_id"])
