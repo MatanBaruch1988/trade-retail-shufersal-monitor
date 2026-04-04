@@ -293,9 +293,11 @@ async def get_presence():
         # Skip credit-card / loyalty promos (no min_qty = not a per-unit price deal)
         if not r["min_qty"]:
             continue
-        # Skip cross-chain promos: store's actual chain differs from promo file's format
-        if r["store_true_format"] and map_consumer_format(r["store_true_format"]) != r["format_name"]:
-            continue
+        # Skip cross-chain promos: derive true chain from store_name and compare to promo format
+        if r["store_name"]:
+            derived_fmt = map_consumer_format(r["store_name"])
+            if derived_fmt in FORMAT_KEYWORDS and derived_fmt != r["format_name"]:
+                continue
         key2 = (r["item_code"], r["format_name"])
         key3 = (r["item_code"], r["format_name"], r["store_id"])
         qty  = r["min_qty"] if r["min_qty"] and r["min_qty"] > 1 else 1
