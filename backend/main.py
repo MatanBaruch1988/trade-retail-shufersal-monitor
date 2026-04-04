@@ -998,10 +998,10 @@ async def get_history_chart(barcode: str, days: int = 30):
         if fmt not in agg_by_fmt:
             agg_by_fmt[fmt] = {}
             formats_seen.append(fmt)
-        agg_by_fmt[fmt][r["snap_date"]] = r
+        agg_by_fmt[fmt][str(r["snap_date"])] = r
 
     for r in detail_rows:
-        fmt, d = r["format_name"], r["snap_date"]
+        fmt, d = r["format_name"], str(r["snap_date"])
         if fmt in disabled_fmt:
             continue
         detail_by_fmt.setdefault(fmt, {}).setdefault(d, []).append({
