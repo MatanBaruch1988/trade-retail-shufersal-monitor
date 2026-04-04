@@ -67,14 +67,14 @@ def run(records: list[dict]) -> dict:
             "count": len(formats_present),
         }
 
-    # ── Price gaps ────────────────────────────────────────────────────────
+    # ── Price gaps (catalog prices only) ─────────────────────────────────
     price_gaps = []
     for barcode, recs in groups.items():
         # Per format: pick best-priority record (PromoFull > PriceFull > Promo > Price)
-        # to avoid mixing catalog prices with stale branch-level deltas
+        # Catalog prices only — promo mismatches are reported separately
         fmt_best: dict[str, dict] = {}
         for r in recs:
-            p = r["promo_price"] if r["promo_price"] is not None else r["price"]
+            p = r["price"]  # catalog price only
             if p is None:
                 continue
             fmt = r["format_name"]
@@ -141,6 +141,30 @@ def run(records: list[dict]) -> dict:
                 "barcode": barcode,
                 "name": info["name"],
                 "detail": f"מופיע רק ב-{fmt}",
+                "gap_pct": None,
+            })
+
+    # Promo mismatch: promo exists in some formats but not in others
+    for barcode, recs in groups.items():
+        fmt_promos: dict[str, Optional[float]] = {}
+        for r in recs:
+            fmt = r["format_name"]
+            promo = r["promo_price"]
+            if fmt not in fmt_promos or (promo is not None and (fmt_promos[fmt] is None or promo < fmt_promos[fmt])):
+                fmt_promos[fmt] = promo
+
+        formats_with_promo = {f: p for f, p in fmt_promos.items() if p is not None}
+        formats_without_promo = sorted(f for f, p in fmt_promos.items() if p is None)
+
+        if formats_with_promo and formats_without_promo:
+            best_fmt = min(formats_with_promo, key=formats_with_promo.get)
+            best_price = formats_with_promo[best_fmt]
+            missing = ", ".join(formats_without_promo)
+            outliers.append({
+                "type": "promo_mismatch",
+                "barcode": barcode,
+                "name": recs[0]["name"],
+                "detail": f"מבצע ב-{best_fmt} (₪{best_price}) - חסר מבצע ב: {missing}",
                 "gap_pct": None,
             })
 

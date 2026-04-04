@@ -28,6 +28,11 @@ def _static_fallback(outliers: list[dict], price_gaps: list[dict]) -> list[dict]
             severity = "yellow"
             urgency = 5
             action = "שלח בקשה להכנסת מבצע לידיעון הבא"
+        elif o["type"] == "promo_mismatch":
+            severity = "yellow"
+            urgency = 3
+            missing_fmt = o["detail"].split("חסר מבצע ב:")[-1].strip() if "חסר מבצע ב:" in o["detail"] else ""
+            action = f"בדוק עם KA של {missing_fmt} אפשרות להכניס מבצע מקביל"[:120]
         else:  # single_format
             severity = "yellow"
             urgency = 4

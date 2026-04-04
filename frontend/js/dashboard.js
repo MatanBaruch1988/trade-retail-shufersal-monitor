@@ -88,7 +88,7 @@ async function loadActionQueue() {
     }
 
     // Update tile counts
-    ['high_gap', 'no_promo', 'single_format'].forEach(type => {
+    ['high_gap', 'no_promo', 'single_format', 'promo_mismatch'].forEach(type => {
       const el = document.getElementById('tileCount_' + type);
       if (el) el.textContent = alertsData.filter(a => a.alert_type === type).length;
     });
@@ -110,9 +110,10 @@ function renderAlertCard(a) {
 }
 
 const drillDownLabels = {
-  high_gap:      '🔴 פערי מחיר',
-  no_promo:      '🟡 ללא מבצע',
-  single_format: '🟠 כיסוי חסר',
+  high_gap:       '🔴 פערי מחיר',
+  no_promo:       '🟡 ללא מבצע',
+  single_format:  '🟠 כיסוי חסר',
+  promo_mismatch: '🔵 מבצע חלקי',
 };
 
 function openDrillDown(type) {
@@ -132,7 +133,7 @@ function closeDrillDown() {
 }
 
 function severityIcon(s) {
-  return s === 'red' ? '🔴' : s === 'yellow' ? '🟡' : '🟢';
+  return s === 'red' ? '🔴' : s === 'yellow' ? '🟡' : s === 'blue' ? '🔵' : '🟢';
 }
 
 // ── Modal ─────────────────────────────────────────────────────
