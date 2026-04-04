@@ -248,7 +248,6 @@ async def get_presence():
                     AND pf.source_ts   = latest.max_ts
             LEFT JOIN barcodes b ON b.barcode = pf.item_code
             LEFT JOIN stores s ON s.store_id = LTRIM(pf.store_id, '0')
-                               AND s.format_name = pf.format_name
             ORDER BY name, pf.format_name, pf.item_price DESC
         """) as cur:
             price_rows = await cur.fetchall()
@@ -277,7 +276,6 @@ async def get_presence():
                     AND pf.store_id    = latest.store_id
                     AND pf.source_ts   = latest.max_ts
             LEFT JOIN stores s ON s.store_id = LTRIM(pf.store_id, '0')
-                               AND s.format_name = pf.format_name
             ORDER BY pf.item_code, pf.format_name, pf.discounted_price DESC
         """) as cur:
             promo_rows = await cur.fetchall()
