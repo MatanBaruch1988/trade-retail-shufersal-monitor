@@ -11,6 +11,7 @@ _DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if _DATABASE_URL.startswith("postgresql"):
     from backend.db_pg import (  # noqa: F401
         get_db,
+        get_pool,
         init_db,
         get_status,
         set_status,
