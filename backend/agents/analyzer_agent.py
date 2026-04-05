@@ -6,6 +6,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 OUTLIER_GAP_PCT_THRESHOLD = 30.0  # flag if gap % > this
+OUTLIER_PRICE_RATIO = 0.35        # מחיר < 35% מהחציון = bundle promo שגוי
 MISSING_PROMO_FORMATS_THRESHOLD = 4  # flag if missing promo in >= this many formats
 
 # Prefer catalog files over delta files when computing per-format price
@@ -86,6 +87,13 @@ def run(records: list[dict]) -> dict:
             continue
 
         fmt_avg = {fmt: v["price"] for fmt, v in fmt_best.items()}
+        sorted_prices = sorted(fmt_avg.values())
+        median = sorted_prices[len(sorted_prices) // 2]
+        if median > 0:
+            fmt_avg = {fmt: p for fmt, p in fmt_avg.items() if p >= median * OUTLIER_PRICE_RATIO}
+        if len(fmt_avg) < 2:
+            continue
+
         min_price = min(fmt_avg.values())
         max_price = max(fmt_avg.values())
         min_format = min(fmt_avg, key=fmt_avg.get)

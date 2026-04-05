@@ -303,10 +303,45 @@ function _positionPresenceTooltip(event) {
   tip.style.top  = Math.max(margin, y) + 'px';
 }
 
+let _presenceFilters = new Set();
+const _presenceFilterFns = {
+  catalog:      p => Object.values(p.formats).some(f => f.price_min != null),
+  promo:        p => Object.values(p.formats).some(f => f.promo != null || f.promo_min != null),
+  out_of_stock: p => Object.values(p.formats).some(f => f.missing_reason === 'out_of_stock'),
+  load_issue:   p => Object.values(p.formats).some(f => f.missing_reason === 'load_issue'),
+};
+
+function togglePresenceFilter(type) {
+  if (_presenceFilters.has(type)) _presenceFilters.delete(type);
+  else _presenceFilters.add(type);
+  if (presenceData) renderPresence(presenceData);
+}
+
 function renderPresence(data) {
   if (!data) return;
   const { formats, products } = data;
   window._presenceStats = {};
+
+  // עדכן כמויות ומצב כפתורי מסנן
+  const counts = {
+    catalog:      products.filter(_presenceFilterFns.catalog).length,
+    promo:        products.filter(_presenceFilterFns.promo).length,
+    out_of_stock: products.filter(_presenceFilterFns.out_of_stock).length,
+    load_issue:   products.filter(_presenceFilterFns.load_issue).length,
+  };
+  Object.keys(_presenceFilterFns).forEach(type => {
+    const btn = document.getElementById(`pf-${type}`);
+    const badge = document.getElementById(`pfc-${type}`);
+    if (!btn || !badge) return;
+    badge.textContent = counts[type];
+    if (type === 'out_of_stock' || type === 'load_issue') {
+      btn.classList.toggle('hidden', counts[type] === 0);
+    }
+    const isActive = _presenceFilters.has(type);
+    btn.style.fontWeight = isActive ? '700' : '';
+    btn.style.boxShadow  = isActive ? 'inset 0 0 0 2px currentColor' : '';
+    btn.style.opacity    = (!isActive && _presenceFilters.size > 0) ? '0.5' : '';
+  });
 
   // Header
   document.getElementById('presenceHead').innerHTML =
@@ -318,7 +353,11 @@ function renderPresence(data) {
 
   // Body
   const search = document.getElementById('presenceSearch').value.toLowerCase();
-  const filtered = products.filter(p => p.name.toLowerCase().includes(search));
+  const filtered = products.filter(p => {
+    if (!(p.name.toLowerCase().includes(search) || p.barcode.toString().includes(search))) return false;
+    if (_presenceFilters.size === 0) return true;
+    return [..._presenceFilters].some(type => _presenceFilterFns[type](p));
+  });
 
   document.getElementById('presenceBody').innerHTML = filtered.map(p => {
     const cells = formats.map(fmtName => {
@@ -329,8 +368,9 @@ function renderPresence(data) {
 
       const hasCatalog = price_min != null;
       const hasPromo   = promo != null;
+      const hasGhost   = !hasCatalog && cell.last_known_price != null;
 
-      if (!hasCatalog && !hasPromo) {
+      if (!hasCatalog && !hasPromo && !hasGhost) {
         return `<td class="px-2 py-2 text-center"><span class="text-gray-300 text-sm">-</span></td>`;
       }
 
@@ -338,42 +378,32 @@ function renderPresence(data) {
 
       if (hasCatalog) {
         const keyC = `${p.barcode}__${fmtName}__c`;
-        window._presenceStats[keyC] = { name: p.name, format_name: fmtName, type: 'catalog', price_min, price_max, price_avg, price_median, store_count, stores };
-        const rangeStr = price_min === price_max
-          ? `₪${fmt(price_min)}`
-          : `₪${fmt(price_min)}–₪${fmt(price_max)}`;
-        badges += `<span class="inline-flex flex-col items-center text-xs px-1 py-0.5 rounded bg-blue-100 text-blue-700 cursor-help"
-            data-skey="${keyC}"
-            onmouseenter="showPresenceTooltip(event,'${keyC}')"
-            onmouseleave="hidePresenceTooltip()"
-            onmousemove="_positionPresenceTooltip(event)">
-            <span>קטלוגי</span><span class="font-medium" dir="ltr">${rangeStr}</span>
-          </span>`;
+        badges += _tooltipBadge(keyC, 'bg-blue-100', 'text-blue-700',
+          `<span class="font-medium" dir="ltr">${_priceRange(price_min, price_max)}</span>`,
+          { name: p.name, format_name: fmtName, type: 'catalog', price_min, price_max, price_avg, price_median, store_count, stores });
       }
 
       if (hasPromo) {
         const keyP = `${p.barcode}__${fmtName}__p`;
         const pMin = promo_min ?? promo;
         const pMax = promo_max ?? promo;
-        window._presenceStats[keyP] = {
-          name: p.name, format_name: fmtName, type: 'promo',
-          price_min:    pMin,
-          price_max:    pMax,
-          price_avg:    promo_avg ?? promo,
-          price_median: promo_median ?? promo,
-          store_count:  promo_store_count ?? 1,
-          stores:       promo_stores || [],
-          promo_list:   promo_list || [],
-        };
-        const promoRange = pMin === pMax
-          ? `₪${fmt(pMin)}`
-          : `₪${fmt(pMin)}–₪${fmt(pMax)}`;
-        badges += `<span class="inline-flex flex-col items-center text-xs px-1 py-0.5 rounded bg-green-100 text-green-700 cursor-help"
-            data-skey="${keyP}"
-            onmouseenter="showPresenceTooltip(event,'${keyP}')"
-            onmouseleave="hidePresenceTooltip()"
-            onmousemove="_positionPresenceTooltip(event)">
-            <span>מבצע</span><span class="font-semibold" dir="ltr">${promoRange}</span>
+        badges += _tooltipBadge(keyP, 'bg-green-100', 'text-green-700',
+          `<span class="font-semibold" dir="ltr">${_priceRange(pMin, pMax)}</span>`,
+          { name: p.name, format_name: fmtName, type: 'promo',
+            price_min: pMin, price_max: pMax,
+            price_avg: promo_avg ?? promo, price_median: promo_median ?? promo,
+            store_count: promo_store_count ?? 1, stores: promo_stores || [], promo_list: promo_list || [] });
+      }
+
+      if (hasGhost) {
+        const dateLabel = _fmtDate(cell.last_known_ts || '').slice(0, 5);
+        const [reasonCls, reasonText] = cell.missing_reason === 'load_issue'
+          ? ['text-red-500 bg-red-50', '⚠️ טעינה']
+          : ['text-orange-500 bg-orange-50', '📦 אזל'];
+        badges += `<span class="inline-flex flex-col items-center text-xs px-1 py-0.5 rounded bg-gray-100 text-gray-400"
+            title="מחיר אחרון ידוע${dateLabel ? ' (' + dateLabel + ')' : ''}">
+            <span dir="ltr" class="font-medium">₪${cell.last_known_price.toFixed(2)}</span>
+            <span class="text-[9px] px-1 rounded ${reasonCls} font-medium leading-tight">${reasonText}</span>
           </span>`;
       }
 
@@ -490,7 +520,13 @@ async function loadGaps() {
 // ── Data Quality ─────────────────────────────────────────────
 function coverageCls(pct, hasData) {
   if (!hasData) return 'text-gray-400';
+  if (pct > 100) return 'text-red-600 font-medium';
   return pct >= 80 ? 'text-green-600 font-medium' : pct >= 50 ? 'text-yellow-600 font-medium' : 'text-red-600 font-medium';
+}
+function coverageLabel(pct, hasData) {
+  if (!hasData) return '-';
+  if (pct > 100) return `<span title="יותר קבצי מחיר נטענו ממספר הסניפים הרשמי. ייתכן שהרשת פתחה סניפים חדשים שטרם עודכנו ברשימה, או שיש שיבוש נתונים." class="cursor-help">⚠️ ${pct}%</span>`;
+  return `${pct}%`;
 }
 
 async function loadDataQuality() {
@@ -532,7 +568,7 @@ async function loadDataQuality() {
             <td class="px-4 py-2 text-center font-mono text-xs text-gray-500">${esc(f.display_date)}</td>
             <td class="px-4 py-2 text-center font-mono text-xs">${f.branch_count_db ?? '-'}</td>
             <td class="px-4 py-2 text-center font-mono text-xs text-gray-400">${f.branch_count_site || '-'}</td>
-            <td class="px-4 py-2 text-center text-xs ${coverageCls(f.branch_coverage_pct, !!f.branch_count_site)}">${f.branch_count_site ? f.branch_coverage_pct + '%' : '-'}</td>
+            <td class="px-4 py-2 text-center text-xs ${coverageCls(f.branch_coverage_pct, !!f.branch_count_site)}">${coverageLabel(f.branch_coverage_pct, !!f.branch_count_site)}</td>
             <td class="px-4 py-2 text-center font-mono text-xs">${f.bc_count}</td>
             <td class="px-4 py-2 text-center font-mono text-xs text-gray-400">${f.bc_count_site ?? '-'}</td>
             <td class="px-4 py-2 text-center text-xs ${coverageCls(f.coverage_pct, f.bc_count > 0)}">${f.bc_count > 0 ? f.coverage_pct + '%' : '-'}</td>
@@ -1080,6 +1116,19 @@ function esc(str) {
 function fmt(n) {
   if (n == null) return '-';
   return parseFloat(n).toFixed(2);
+}
+
+function _priceRange(min, max) {
+  return min === max ? `₪${fmt(min)}` : `₪${fmt(min)}–₪${fmt(max)}`;
+}
+
+function _tooltipBadge(key, bgCls, textCls, innerHtml, stats) {
+  window._presenceStats[key] = stats;
+  return `<span class="inline-flex flex-col items-center text-xs px-1 py-0.5 rounded ${bgCls} ${textCls} cursor-help"
+      data-skey="${key}"
+      onmouseenter="showPresenceTooltip(event,'${key}')"
+      onmouseleave="hidePresenceTooltip()"
+      onmousemove="_positionPresenceTooltip(event)">${innerHtml}</span>`;
 }
 
 // ══════════════════════════════════════════════════════════════

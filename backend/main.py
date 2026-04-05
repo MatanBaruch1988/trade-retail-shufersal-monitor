@@ -6,11 +6,13 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import statistics as _stats
+from collections import defaultdict
 import aiosqlite
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Body, Header, UploadFile, File
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -222,7 +224,6 @@ async def get_insights():
 
 @app.get("/api/presence")
 async def get_presence():
-    import statistics as _stats
     disabled_fmt, active_bc = await _active_filters()
     conn = await db.get_db()
     try:
@@ -283,8 +284,34 @@ async def get_presence():
     finally:
         await conn.close()
 
+    # ── Historical last-known prices ─────────────────────────────────────────
+    conn2 = await db.get_db()
+    try:
+        if active_bc:
+            bc_ph  = ",".join("?" * len(active_bc))
+            fmt_ph = ",".join("?" * len(disabled_fmt)) if disabled_fmt else None
+            hist_sql = f"""
+                SELECT item_code, format_name,
+                       MIN(item_price) AS last_price, MAX(source_ts) AS last_ts
+                FROM v_current_prices
+                WHERE item_code IN ({bc_ph})
+                {"AND format_name NOT IN (" + fmt_ph + ")" if fmt_ph else ""}
+                GROUP BY item_code, format_name
+            """
+            params = list(active_bc) + (list(disabled_fmt) if disabled_fmt else [])
+            async with conn2.execute(hist_sql, params) as cur:
+                hist_rows = await cur.fetchall()
+        else:
+            hist_rows = []
+    finally:
+        await conn2.close()
+
+    hist_map: dict[tuple, dict] = {
+        (r["item_code"], r["format_name"]): {"price": r["last_price"], "ts": r["last_ts"]}
+        for r in hist_rows if r["last_price"] is not None
+    }
+
     # Index promos — keep best (lowest unit price) per store + collect all distinct promos
-    from collections import defaultdict
     promo_store_best: dict[tuple, dict] = {}          # (bc, fmt, store_id) → best row
     promo_all_types: dict[tuple, list] = defaultdict(list)  # (bc, fmt) → distinct promos
     seen_promos: set = set()
@@ -404,6 +431,26 @@ async def get_presence():
             **promo_stats,
         }
 
+    # ── Ghost entries: last-known price for missing (barcode, format) pairs ──
+    # פורמטים עם נתונים בחלון 24 שעות — בדיקה נכונה לטעינה תקינה
+    fmt_has_current = formats_set  # formats שיש להם לפחות ברקוד אחד עדכני
+    all_known_fmts = {fmt for (_, fmt) in hist_map} | formats_set
+    for bc, bc_data in products.items():
+        for fmt in all_known_fmts:
+            if fmt in disabled_fmt or fmt in bc_data["formats"]:
+                continue
+            hist = hist_map.get((bc, fmt))
+            if not hist:
+                continue
+            reason = "load_issue" if fmt not in fmt_has_current else "out_of_stock"
+            bc_data["formats"][fmt] = {
+                "last_known_price": hist["price"],
+                "last_known_ts":    hist["ts"],
+                "missing_reason":   reason,
+            }
+    formats_set |= {fmt for bc_data in products.values()
+                    for fmt in bc_data["formats"] if fmt not in disabled_fmt}
+
     return {"formats": sorted(formats_set), "products": list(products.values())}
 
 
@@ -440,7 +487,6 @@ async def get_price_gaps():
     finally:
         await conn.close()
 
-    from collections import defaultdict
     catalog_map: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     promo_map:   dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     names: dict[str, str] = {}
@@ -455,16 +501,26 @@ async def get_price_gaps():
         if r["promo_price"] is not None:
             promo_map[bc][r["format_name"]].append(r["promo_price"])
 
+    OUTLIER_PRICE_RATIO = 0.35
+
     def build_gaps(price_map):
         result = []
         for bc, fmt_map in price_map.items():
             if len(fmt_map) < 2:
                 continue
-            fmt_avg  = {fmt: round(sum(ps) / len(ps), 2) for fmt, ps in fmt_map.items()}
+            fmt_avg = {fmt: round(sum(ps) / len(ps), 2) for fmt, ps in fmt_map.items()}
+            sorted_prices = sorted(fmt_avg.values())
+            median = sorted_prices[len(sorted_prices) // 2]
+            if median > 0:
+                fmt_avg = {fmt: p for fmt, p in fmt_avg.items() if p >= median * OUTLIER_PRICE_RATIO}
+            if len(fmt_avg) < 2:
+                continue
             min_fmt  = min(fmt_avg, key=fmt_avg.get)
             max_fmt  = max(fmt_avg, key=fmt_avg.get)
             min_p, max_p = fmt_avg[min_fmt], fmt_avg[max_fmt]
             gap_ils  = round(max_p - min_p, 2)
+            if gap_ils == 0:
+                continue
             gap_pct  = round(gap_ils / max_p * 100, 1) if max_p else 0
             result.append({
                 "barcode": bc, "name": names[bc],
