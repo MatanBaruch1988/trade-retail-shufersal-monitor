@@ -92,9 +92,17 @@ async def get_status():
 # Manual refresh
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _check_debug_auth(authorization: str):
+    import os
+    secret = os.environ.get("CRON_SECRET", "")
+    if secret and authorization != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/api/debug/promo-sample")
-async def debug_promo_sample():
+async def debug_promo_sample(authorization: str = Header(default="")):
     """Return sample promo_full rows with discounted_price=10 to inspect promotion_description."""
+    _check_debug_auth(authorization)
     conn = await db.get_db()
     try:
         async with conn.execute("""
@@ -118,15 +126,20 @@ async def debug_promo_sample():
 
 
 @app.delete("/api/debug/promo-sbox")
-async def delete_sbox_promos():
+async def delete_sbox_promos(authorization: str = Header(default="")):
     """Delete all SBOX / credit-card wallet promos from promo_full."""
-    pool = await db.get_pool()
-    result = await pool.execute("""
-        DELETE FROM promo_full
-        WHERE promotion_description ILIKE '%SBOX%'
-           OR promotion_description ILIKE '%כ.אשראי%'
-    """)
-    deleted = int(result.split()[-1]) if result else -1
+    _check_debug_auth(authorization)
+    conn = await db.get_db()
+    try:
+        await conn.execute("""
+            DELETE FROM promo_full
+            WHERE promotion_description LIKE '%SBOX%'
+               OR promotion_description LIKE '%כ.אשראי%'
+        """)
+        await conn.commit()
+        deleted = conn.total_changes
+    finally:
+        await conn.close()
     return {"status": "ok", "deleted": deleted}
 
 
@@ -291,12 +304,18 @@ async def get_presence():
             bc_ph  = ",".join("?" * len(active_bc))
             fmt_ph = ",".join("?" * len(disabled_fmt)) if disabled_fmt else None
             hist_sql = f"""
-                SELECT item_code, format_name,
-                       MIN(item_price) AS last_price, MAX(source_ts) AS last_ts
-                FROM v_current_prices
-                WHERE item_code IN ({bc_ph})
-                {"AND format_name NOT IN (" + fmt_ph + ")" if fmt_ph else ""}
-                GROUP BY item_code, format_name
+                SELECT v.item_code, v.format_name,
+                       v.item_price AS last_price, v.source_ts AS last_ts
+                FROM v_current_prices v
+                JOIN (
+                    SELECT item_code, format_name, MAX(source_ts) AS max_ts
+                    FROM v_current_prices
+                    WHERE item_code IN ({bc_ph})
+                    {"AND format_name NOT IN (" + fmt_ph + ")" if fmt_ph else ""}
+                    GROUP BY item_code, format_name
+                ) latest ON v.item_code = latest.item_code
+                        AND v.format_name = latest.format_name
+                        AND v.source_ts = latest.max_ts
             """
             params = list(active_bc) + (list(disabled_fmt) if disabled_fmt else [])
             async with conn2.execute(hist_sql, params) as cur:
